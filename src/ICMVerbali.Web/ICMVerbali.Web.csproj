@@ -8,8 +8,11 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <PackageReference Include="Blazor.SignaturePad" Version="10.0.0" />
     <PackageReference Include="Dapper" Version="2.1.72" />
     <PackageReference Include="Microsoft.Data.SqlClient" Version="7.0.1" />
+    <PackageReference Include="MudBlazor" Version="9.4.0" />
+    <PackageReference Include="SkiaSharp" Version="3.119.2" />
   </ItemGroup>
 
 </Project>
