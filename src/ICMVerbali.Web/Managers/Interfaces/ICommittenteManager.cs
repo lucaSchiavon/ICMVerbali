@@ -12,6 +12,8 @@ public interface ICommittenteManager
         string? numeroIscrizioneRegistroImprese,
         CancellationToken ct = default);
 
+    Task AggiornaAsync(Committente committente, CancellationToken ct = default);
     Task<Committente?> GetAsync(Guid id, CancellationToken ct = default);
     Task<IReadOnlyList<Committente>> ListaAttiviAsync(CancellationToken ct = default);
+    Task<IReadOnlyList<Committente>> ListaTuttiAsync(CancellationToken ct = default);
 }

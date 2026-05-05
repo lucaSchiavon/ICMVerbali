@@ -35,9 +35,22 @@ public sealed class ImpresaAppaltatriceManager : IImpresaAppaltatriceManager
         return impresa;
     }
 
+    public async Task AggiornaAsync(ImpresaAppaltatrice impresa, CancellationToken ct = default)
+    {
+        if (impresa.Id == Guid.Empty)
+            throw new ArgumentException("Id impresa mancante.", nameof(impresa));
+        if (string.IsNullOrWhiteSpace(impresa.RagioneSociale))
+            throw new ArgumentException("Ragione sociale obbligatoria.");
+
+        await _repo.UpdateAsync(impresa, ct);
+    }
+
     public Task<ImpresaAppaltatrice?> GetAsync(Guid id, CancellationToken ct = default)
         => _repo.GetByIdAsync(id, ct);
 
     public Task<IReadOnlyList<ImpresaAppaltatrice>> ListaAttiviAsync(CancellationToken ct = default)
         => _repo.GetAttiviAsync(ct);
+
+    public Task<IReadOnlyList<ImpresaAppaltatrice>> ListaTuttiAsync(CancellationToken ct = default)
+        => _repo.GetAllAsync(ct);
 }

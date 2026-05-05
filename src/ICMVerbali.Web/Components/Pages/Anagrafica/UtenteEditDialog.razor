@@ -1,0 +1,116 @@
+@using ICMVerbali.Web.Authentication
+@using ICMVerbali.Web.Entities
+@using ICMVerbali.Web.Entities.Enums
+@using ICMVerbali.Web.Managers.Interfaces
+@inject IUtenteManager Manager
+@inject IPasswordHasherService Hasher
+@inject ISnackbar Snackbar
+
+<MudDialog>
+    <DialogContent>
+        <MudForm @ref="_form" Model="@_model">
+            <MudTextField @bind-Value="_model.Username"
+                          Label="Username" Required="true" RequiredError="Username obbligatorio." />
+            <MudTextField @bind-Value="_model.Email" Label="Email" Class="mt-3" />
+            <MudSelect T="RuoloUtente" @bind-Value="_model.Ruolo" Label="Ruolo" Class="mt-3">
+                <MudSelectItem Value="RuoloUtente.Cse">CSE</MudSelectItem>
+                <MudSelectItem Value="RuoloUtente.Admin">Admin</MudSelectItem>
+            </MudSelect>
+
+            @if (ToEdit is null)
+            {
+                <MudTextField @bind-Value="_model.Password"
+                              Label="Password iniziale"
+                              InputType="InputType.Password"
+                              Required="true" RequiredError="Password obbligatoria."
+                              Class="mt-3" />
+                <MudTextField @bind-Value="_model.PasswordConfirm"
+                              Label="Conferma password"
+                              InputType="InputType.Password"
+                              Required="true" RequiredError="Conferma obbligatoria."
+                              Class="mt-3" />
+            }
+            else
+            {
+                <MudCheckBox @bind-Value="_model.IsAttivo" Label="Attivo" Class="mt-3" />
+                <MudAlert Severity="Severity.Info" Dense="true" Class="mt-3">
+                    Il cambio password sara' un'operazione separata (B.7+).
+                </MudAlert>
+            }
+        </MudForm>
+    </DialogContent>
+    <DialogActions>
+        <MudButton OnClick="Cancel">Annulla</MudButton>
+        <MudButton Color="Color.Primary" Variant="Variant.Filled" OnClick="Submit" Disabled="_busy">
+            @(ToEdit is null ? "Crea" : "Salva")
+        </MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter] private IMudDialogInstance MudDialog { get; set; } = null!;
+    [Parameter] public Utente? ToEdit { get; set; }
+
+    private MudForm _form = null!;
+    private FormModel _model = new();
+    private bool _busy;
+
+    protected override void OnInitialized()
+    {
+        if (ToEdit is not null)
+        {
+            _model.Username = ToEdit.Username;
+            _model.Email = ToEdit.Email;
+            _model.Ruolo = ToEdit.Ruolo;
+            _model.IsAttivo = ToEdit.IsAttivo;
+        }
+    }
+
+    private async Task Submit()
+    {
+        await _form.ValidateAsync();
+        if (!_form.IsValid) return;
+
+        if (ToEdit is null && _model.Password != _model.PasswordConfirm)
+        {
+            Snackbar.Add("Le due password non coincidono.", Severity.Warning);
+            return;
+        }
+
+        _busy = true;
+        try
+        {
+            if (ToEdit is null)
+            {
+                var hash = Hasher.HashPassword(_model.Password!);
+                await Manager.CreaAsync(_model.Username!, _model.Email, hash, _model.Ruolo);
+            }
+            else
+            {
+                ToEdit.Username = _model.Username!;
+                ToEdit.Email = _model.Email;
+                ToEdit.Ruolo = _model.Ruolo;
+                ToEdit.IsAttivo = _model.IsAttivo;
+                await Manager.AggiornaProfiloAsync(ToEdit);
+            }
+            MudDialog.Close(DialogResult.Ok(true));
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"Errore: {ex.Message}", Severity.Error);
+            _busy = false;
+        }
+    }
+
+    private void Cancel() => MudDialog.Cancel();
+
+    private sealed class FormModel
+    {
+        public string? Username { get; set; }
+        public string? Email { get; set; }
+        public string? Password { get; set; }
+        public string? PasswordConfirm { get; set; }
+        public RuoloUtente Ruolo { get; set; } = RuoloUtente.Cse;
+        public bool IsAttivo { get; set; } = true;
+    }
+}

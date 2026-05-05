@@ -28,10 +28,31 @@ FROM dbo.Committente
 WHERE IsAttivo = 1
 ORDER BY RagioneSociale;";
 
+    private const string SqlGetAll = @"
+SELECT Id, RagioneSociale, Indirizzo, CodiceFiscale, PartitaIva, NumeroIscrizioneRegistroImprese, IsAttivo
+FROM dbo.Committente
+ORDER BY IsAttivo DESC, RagioneSociale;";
+
+    private const string SqlUpdate = @"
+UPDATE dbo.Committente
+SET RagioneSociale = @RagioneSociale,
+    Indirizzo = @Indirizzo,
+    CodiceFiscale = @CodiceFiscale,
+    PartitaIva = @PartitaIva,
+    NumeroIscrizioneRegistroImprese = @NumeroIscrizioneRegistroImprese,
+    IsAttivo = @IsAttivo
+WHERE Id = @Id;";
+
     public async Task CreateAsync(Committente committente, CancellationToken ct = default)
     {
         await using var conn = await _factory.CreateOpenConnectionAsync(ct);
         await conn.ExecuteAsync(new CommandDefinition(SqlInsert, committente, cancellationToken: ct));
+    }
+
+    public async Task UpdateAsync(Committente committente, CancellationToken ct = default)
+    {
+        await using var conn = await _factory.CreateOpenConnectionAsync(ct);
+        await conn.ExecuteAsync(new CommandDefinition(SqlUpdate, committente, cancellationToken: ct));
     }
 
     public async Task<Committente?> GetByIdAsync(Guid id, CancellationToken ct = default)
@@ -46,6 +67,14 @@ ORDER BY RagioneSociale;";
         await using var conn = await _factory.CreateOpenConnectionAsync(ct);
         var rows = await conn.QueryAsync<Committente>(
             new CommandDefinition(SqlGetAttivi, cancellationToken: ct));
+        return rows.ToList();
+    }
+
+    public async Task<IReadOnlyList<Committente>> GetAllAsync(CancellationToken ct = default)
+    {
+        await using var conn = await _factory.CreateOpenConnectionAsync(ct);
+        var rows = await conn.QueryAsync<Committente>(
+            new CommandDefinition(SqlGetAll, cancellationToken: ct));
         return rows.ToList();
     }
 }

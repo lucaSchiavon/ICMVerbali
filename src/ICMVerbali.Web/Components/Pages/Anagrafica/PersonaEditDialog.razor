@@ -1,0 +1,83 @@
+@using ICMVerbali.Web.Entities
+@using ICMVerbali.Web.Managers.Interfaces
+@inject IPersonaManager Manager
+@inject ISnackbar Snackbar
+
+<MudDialog>
+    <DialogContent>
+        <MudForm @ref="_form" Model="@_model">
+            <MudTextField @bind-Value="_model.Nominativo"
+                          Label="Nominativo (es. Ing. Mario Rossi)"
+                          Required="true" RequiredError="Nominativo obbligatorio." />
+            <MudTextField @bind-Value="_model.Azienda"
+                          Label="Azienda" Required="true" RequiredError="Azienda obbligatoria."
+                          Class="mt-3" />
+            @if (ToEdit is not null)
+            {
+                <MudCheckBox @bind-Value="_model.IsAttivo" Label="Attivo" Class="mt-3" />
+            }
+        </MudForm>
+    </DialogContent>
+    <DialogActions>
+        <MudButton OnClick="Cancel">Annulla</MudButton>
+        <MudButton Color="Color.Primary" Variant="Variant.Filled" OnClick="Submit" Disabled="_busy">
+            @(ToEdit is null ? "Crea" : "Salva")
+        </MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter] private IMudDialogInstance MudDialog { get; set; } = null!;
+    [Parameter] public Persona? ToEdit { get; set; }
+
+    private MudForm _form = null!;
+    private FormModel _model = new();
+    private bool _busy;
+
+    protected override void OnInitialized()
+    {
+        if (ToEdit is not null)
+        {
+            _model.Nominativo = ToEdit.Nominativo;
+            _model.Azienda = ToEdit.Azienda;
+            _model.IsAttivo = ToEdit.IsAttivo;
+        }
+    }
+
+    private async Task Submit()
+    {
+        await _form.ValidateAsync();
+        if (!_form.IsValid) return;
+
+        _busy = true;
+        try
+        {
+            if (ToEdit is null)
+            {
+                await Manager.CreaAsync(_model.Nominativo!, _model.Azienda!);
+            }
+            else
+            {
+                ToEdit.Nominativo = _model.Nominativo!;
+                ToEdit.Azienda = _model.Azienda!;
+                ToEdit.IsAttivo = _model.IsAttivo;
+                await Manager.AggiornaAsync(ToEdit);
+            }
+            MudDialog.Close(DialogResult.Ok(true));
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"Errore: {ex.Message}", Severity.Error);
+            _busy = false;
+        }
+    }
+
+    private void Cancel() => MudDialog.Cancel();
+
+    private sealed class FormModel
+    {
+        public string? Nominativo { get; set; }
+        public string? Azienda { get; set; }
+        public bool IsAttivo { get; set; } = true;
+    }
+}

@@ -1,0 +1,79 @@
+@page "/anagrafica/imprese"
+@attribute [Authorize]
+@rendermode InteractiveServer
+@using ICMVerbali.Web.Entities
+@using ICMVerbali.Web.Managers.Interfaces
+@inject IImpresaAppaltatriceManager Manager
+@inject IDialogService DialogService
+@inject ISnackbar Snackbar
+
+<PageTitle>Imprese appaltatrici — ICMVerbali</PageTitle>
+
+<MudContainer MaxWidth="MaxWidth.Large" Class="mt-4">
+    <MudStack Row="true" Justify="Justify.SpaceBetween" AlignItems="AlignItems.Center" Class="mb-4">
+        <MudText Typo="Typo.h4">Imprese appaltatrici</MudText>
+        <MudButton Variant="Variant.Filled" Color="Color.Primary"
+                   StartIcon="@Icons.Material.Filled.Add" OnClick="OpenCreateDialog">
+            Nuova
+        </MudButton>
+    </MudStack>
+
+    <MudDataGrid T="ImpresaAppaltatrice" Items="_imprese" Loading="_loading" Hover="true" Dense="true">
+        <Columns>
+            <PropertyColumn Property="x => x.RagioneSociale" Title="Ragione sociale" />
+            <PropertyColumn Property="x => x.Indirizzo" Title="Indirizzo" />
+            <PropertyColumn Property="x => x.PartitaIva" Title="P. IVA" />
+            <PropertyColumn Property="x => x.IsAttivo" Title="Attivo" />
+            <TemplateColumn Title="" Sortable="false" Filterable="false">
+                <CellTemplate>
+                    <MudIconButton Icon="@Icons.Material.Filled.Edit" Size="Size.Small"
+                                   OnClick="@(() => OpenEditDialog(context.Item))" />
+                </CellTemplate>
+            </TemplateColumn>
+        </Columns>
+        <NoRecordsContent>
+            <MudText>Nessuna impresa. Premi "Nuova" per aggiungerne una.</MudText>
+        </NoRecordsContent>
+    </MudDataGrid>
+</MudContainer>
+
+@code {
+    private List<ImpresaAppaltatrice> _imprese = new();
+    private bool _loading = true;
+
+    protected override async Task OnInitializedAsync() => await ReloadAsync();
+
+    private async Task ReloadAsync()
+    {
+        _loading = true;
+        var rows = await Manager.ListaTuttiAsync();
+        _imprese = rows.ToList();
+        _loading = false;
+    }
+
+    private async Task OpenCreateDialog()
+    {
+        var dlg = await DialogService.ShowAsync<ImpresaEditDialog>("Nuova impresa appaltatrice");
+        var result = await dlg.Result;
+        if (result is { Canceled: false })
+        {
+            Snackbar.Add("Impresa creata.", Severity.Success);
+            await ReloadAsync();
+        }
+    }
+
+    private async Task OpenEditDialog(ImpresaAppaltatrice i)
+    {
+        var parameters = new DialogParameters<ImpresaEditDialog>
+        {
+            { x => x.ToEdit, i }
+        };
+        var dlg = await DialogService.ShowAsync<ImpresaEditDialog>("Modifica impresa", parameters);
+        var result = await dlg.Result;
+        if (result is { Canceled: false })
+        {
+            Snackbar.Add("Impresa aggiornata.", Severity.Success);
+            await ReloadAsync();
+        }
+    }
+}

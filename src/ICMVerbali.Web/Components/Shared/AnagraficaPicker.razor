@@ -1,0 +1,53 @@
+@*
+    Autocomplete generico su una lista di entita' anagrafiche. Usato dal wizard
+    Verbale (B.8) per scegliere Cantiere / Committente / Impresa / Persona da
+    una lista di voci attive.
+
+    Esempio d'uso:
+        <AnagraficaPicker T="Persona"
+                          Items="@persone"
+                          Value="@_csePersona"
+                          ValueChanged="@((Persona? p) => _csePersona = p)"
+                          Label="CSE"
+                          ToStringFunc="@(p => $"{p.Nominativo} - {p.Azienda}")" />
+
+    L'inline-create (apertura del dialog "Nuova X" da dentro l'autocomplete)
+    sara' aggiunta in B.8 quando ne avremo bisogno effettivo.
+*@
+@typeparam T where T : class
+
+<MudAutocomplete T="T"
+                 Value="Value"
+                 ValueChanged="HandleValueChanged"
+                 SearchFunc="SearchAsync"
+                 ToStringFunc="ToStringFunc"
+                 Label="@Label"
+                 Required="Required"
+                 RequiredError="@RequiredError"
+                 Clearable="true"
+                 CoerceText="true"
+                 ResetValueOnEmptyText="true" />
+
+@code {
+    [Parameter, EditorRequired] public IEnumerable<T> Items { get; set; } = Array.Empty<T>();
+    [Parameter] public T? Value { get; set; }
+    [Parameter] public EventCallback<T?> ValueChanged { get; set; }
+    [Parameter] public string Label { get; set; } = string.Empty;
+    [Parameter] public bool Required { get; set; }
+    [Parameter] public string RequiredError { get; set; } = "Selezione obbligatoria.";
+    [Parameter, EditorRequired] public Func<T, string> ToStringFunc { get; set; } = x => x?.ToString() ?? string.Empty;
+
+    private Task<IEnumerable<T>?> SearchAsync(string? value, CancellationToken ct)
+    {
+        IEnumerable<T> result = string.IsNullOrWhiteSpace(value)
+            ? Items
+            : Items.Where(i => ToStringFunc(i).Contains(value, StringComparison.OrdinalIgnoreCase));
+        return Task.FromResult<IEnumerable<T>?>(result);
+    }
+
+    private Task HandleValueChanged(T? value)
+    {
+        Value = value;
+        return ValueChanged.InvokeAsync(value);
+    }
+}

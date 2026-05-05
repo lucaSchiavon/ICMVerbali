@@ -1,0 +1,80 @@
+@page "/anagrafica/utenti"
+@attribute [Authorize(Policy = AuthorizationPolicies.RequireAdmin)]
+@rendermode InteractiveServer
+@using ICMVerbali.Web.Authentication
+@using ICMVerbali.Web.Entities
+@using ICMVerbali.Web.Managers.Interfaces
+@inject IUtenteManager Manager
+@inject IDialogService DialogService
+@inject ISnackbar Snackbar
+
+<PageTitle>Utenti — ICMVerbali</PageTitle>
+
+<MudContainer MaxWidth="MaxWidth.Large" Class="mt-4">
+    <MudStack Row="true" Justify="Justify.SpaceBetween" AlignItems="AlignItems.Center" Class="mb-4">
+        <MudText Typo="Typo.h4">Utenti</MudText>
+        <MudButton Variant="Variant.Filled" Color="Color.Primary"
+                   StartIcon="@Icons.Material.Filled.Add" OnClick="OpenCreateDialog">
+            Nuovo
+        </MudButton>
+    </MudStack>
+
+    <MudDataGrid T="Utente" Items="_utenti" Loading="_loading" Hover="true" Dense="true">
+        <Columns>
+            <PropertyColumn Property="x => x.Username" Title="Username" />
+            <PropertyColumn Property="x => x.Email" Title="Email" />
+            <PropertyColumn Property="x => x.Ruolo" Title="Ruolo" />
+            <PropertyColumn Property="x => x.IsAttivo" Title="Attivo" />
+            <TemplateColumn Title="" Sortable="false" Filterable="false">
+                <CellTemplate>
+                    <MudIconButton Icon="@Icons.Material.Filled.Edit" Size="Size.Small"
+                                   OnClick="@(() => OpenEditDialog(context.Item))" />
+                </CellTemplate>
+            </TemplateColumn>
+        </Columns>
+        <NoRecordsContent>
+            <MudText>Nessun utente.</MudText>
+        </NoRecordsContent>
+    </MudDataGrid>
+</MudContainer>
+
+@code {
+    private List<Utente> _utenti = new();
+    private bool _loading = true;
+
+    protected override async Task OnInitializedAsync() => await ReloadAsync();
+
+    private async Task ReloadAsync()
+    {
+        _loading = true;
+        var rows = await Manager.ListaTuttiAsync();
+        _utenti = rows.ToList();
+        _loading = false;
+    }
+
+    private async Task OpenCreateDialog()
+    {
+        var dlg = await DialogService.ShowAsync<UtenteEditDialog>("Nuovo utente");
+        var result = await dlg.Result;
+        if (result is { Canceled: false })
+        {
+            Snackbar.Add("Utente creato.", Severity.Success);
+            await ReloadAsync();
+        }
+    }
+
+    private async Task OpenEditDialog(Utente u)
+    {
+        var parameters = new DialogParameters<UtenteEditDialog>
+        {
+            { x => x.ToEdit, u }
+        };
+        var dlg = await DialogService.ShowAsync<UtenteEditDialog>("Modifica utente", parameters);
+        var result = await dlg.Result;
+        if (result is { Canceled: false })
+        {
+            Snackbar.Add("Utente aggiornato.", Severity.Success);
+            await ReloadAsync();
+        }
+    }
+}

@@ -1,0 +1,79 @@
+@page "/anagrafica/committenti"
+@attribute [Authorize]
+@rendermode InteractiveServer
+@using ICMVerbali.Web.Entities
+@using ICMVerbali.Web.Managers.Interfaces
+@inject ICommittenteManager Manager
+@inject IDialogService DialogService
+@inject ISnackbar Snackbar
+
+<PageTitle>Committenti — ICMVerbali</PageTitle>
+
+<MudContainer MaxWidth="MaxWidth.Large" Class="mt-4">
+    <MudStack Row="true" Justify="Justify.SpaceBetween" AlignItems="AlignItems.Center" Class="mb-4">
+        <MudText Typo="Typo.h4">Committenti</MudText>
+        <MudButton Variant="Variant.Filled" Color="Color.Primary"
+                   StartIcon="@Icons.Material.Filled.Add" OnClick="OpenCreateDialog">
+            Nuovo
+        </MudButton>
+    </MudStack>
+
+    <MudDataGrid T="Committente" Items="_committenti" Loading="_loading" Hover="true" Dense="true">
+        <Columns>
+            <PropertyColumn Property="x => x.RagioneSociale" Title="Ragione sociale" />
+            <PropertyColumn Property="x => x.Indirizzo" Title="Indirizzo" />
+            <PropertyColumn Property="x => x.PartitaIva" Title="P. IVA" />
+            <PropertyColumn Property="x => x.IsAttivo" Title="Attivo" />
+            <TemplateColumn Title="" Sortable="false" Filterable="false">
+                <CellTemplate>
+                    <MudIconButton Icon="@Icons.Material.Filled.Edit" Size="Size.Small"
+                                   OnClick="@(() => OpenEditDialog(context.Item))" />
+                </CellTemplate>
+            </TemplateColumn>
+        </Columns>
+        <NoRecordsContent>
+            <MudText>Nessun committente. Premi "Nuovo" per aggiungerne uno.</MudText>
+        </NoRecordsContent>
+    </MudDataGrid>
+</MudContainer>
+
+@code {
+    private List<Committente> _committenti = new();
+    private bool _loading = true;
+
+    protected override async Task OnInitializedAsync() => await ReloadAsync();
+
+    private async Task ReloadAsync()
+    {
+        _loading = true;
+        var rows = await Manager.ListaTuttiAsync();
+        _committenti = rows.ToList();
+        _loading = false;
+    }
+
+    private async Task OpenCreateDialog()
+    {
+        var dlg = await DialogService.ShowAsync<CommittenteEditDialog>("Nuovo committente");
+        var result = await dlg.Result;
+        if (result is { Canceled: false })
+        {
+            Snackbar.Add("Committente creato.", Severity.Success);
+            await ReloadAsync();
+        }
+    }
+
+    private async Task OpenEditDialog(Committente c)
+    {
+        var parameters = new DialogParameters<CommittenteEditDialog>
+        {
+            { x => x.ToEdit, c }
+        };
+        var dlg = await DialogService.ShowAsync<CommittenteEditDialog>("Modifica committente", parameters);
+        var result = await dlg.Result;
+        if (result is { Canceled: false })
+        {
+            Snackbar.Add("Committente aggiornato.", Severity.Success);
+            await ReloadAsync();
+        }
+    }
+}

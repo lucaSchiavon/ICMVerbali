@@ -32,10 +32,32 @@ FROM dbo.Utente
 WHERE IsAttivo = 1
 ORDER BY Username;";
 
+    private const string SqlGetAll = @"
+SELECT Id, Username, Email, PasswordHash, Ruolo, IsAttivo, CreatedAt, UpdatedAt
+FROM dbo.Utente
+ORDER BY IsAttivo DESC, Username;";
+
+    // UpdateProfile aggiorna username/email/ruolo/IsAttivo. NON tocca PasswordHash:
+    // il cambio password sara' un'operazione separata (B.7+).
+    private const string SqlUpdateProfile = @"
+UPDATE dbo.Utente
+SET Username = @Username,
+    Email = @Email,
+    Ruolo = @Ruolo,
+    IsAttivo = @IsAttivo,
+    UpdatedAt = SYSUTCDATETIME()
+WHERE Id = @Id;";
+
     public async Task CreateAsync(Utente utente, CancellationToken ct = default)
     {
         await using var conn = await _factory.CreateOpenConnectionAsync(ct);
         await conn.ExecuteAsync(new CommandDefinition(SqlInsert, utente, cancellationToken: ct));
+    }
+
+    public async Task UpdateProfileAsync(Utente utente, CancellationToken ct = default)
+    {
+        await using var conn = await _factory.CreateOpenConnectionAsync(ct);
+        await conn.ExecuteAsync(new CommandDefinition(SqlUpdateProfile, utente, cancellationToken: ct));
     }
 
     public async Task<Utente?> GetByIdAsync(Guid id, CancellationToken ct = default)
@@ -57,6 +79,14 @@ ORDER BY Username;";
         await using var conn = await _factory.CreateOpenConnectionAsync(ct);
         var rows = await conn.QueryAsync<Utente>(
             new CommandDefinition(SqlGetAttivi, cancellationToken: ct));
+        return rows.ToList();
+    }
+
+    public async Task<IReadOnlyList<Utente>> GetAllAsync(CancellationToken ct = default)
+    {
+        await using var conn = await _factory.CreateOpenConnectionAsync(ct);
+        var rows = await conn.QueryAsync<Utente>(
+            new CommandDefinition(SqlGetAll, cancellationToken: ct));
         return rows.ToList();
     }
 }

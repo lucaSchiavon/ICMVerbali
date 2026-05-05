@@ -34,6 +34,16 @@ public sealed class UtenteManager : IUtenteManager
         return utente;
     }
 
+    public async Task AggiornaProfiloAsync(Utente utente, CancellationToken ct = default)
+    {
+        if (utente.Id == Guid.Empty)
+            throw new ArgumentException("Id utente mancante.", nameof(utente));
+        if (string.IsNullOrWhiteSpace(utente.Username))
+            throw new ArgumentException("Username obbligatorio.");
+
+        await _repo.UpdateProfileAsync(utente, ct);
+    }
+
     public Task<Utente?> GetAsync(Guid id, CancellationToken ct = default)
         => _repo.GetByIdAsync(id, ct);
 
@@ -42,4 +52,7 @@ public sealed class UtenteManager : IUtenteManager
 
     public Task<IReadOnlyList<Utente>> ListaAttiviAsync(CancellationToken ct = default)
         => _repo.GetAttiviAsync(ct);
+
+    public Task<IReadOnlyList<Utente>> ListaTuttiAsync(CancellationToken ct = default)
+        => _repo.GetAllAsync(ct);
 }

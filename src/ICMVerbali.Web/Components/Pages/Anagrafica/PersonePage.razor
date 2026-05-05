@@ -1,0 +1,78 @@
+@page "/anagrafica/persone"
+@attribute [Authorize]
+@rendermode InteractiveServer
+@using ICMVerbali.Web.Entities
+@using ICMVerbali.Web.Managers.Interfaces
+@inject IPersonaManager Manager
+@inject IDialogService DialogService
+@inject ISnackbar Snackbar
+
+<PageTitle>Persone — ICMVerbali</PageTitle>
+
+<MudContainer MaxWidth="MaxWidth.Large" Class="mt-4">
+    <MudStack Row="true" Justify="Justify.SpaceBetween" AlignItems="AlignItems.Center" Class="mb-4">
+        <MudText Typo="Typo.h4">Persone</MudText>
+        <MudButton Variant="Variant.Filled" Color="Color.Primary"
+                   StartIcon="@Icons.Material.Filled.Add" OnClick="OpenCreateDialog">
+            Nuova
+        </MudButton>
+    </MudStack>
+
+    <MudDataGrid T="Persona" Items="_persone" Loading="_loading" Hover="true" Dense="true">
+        <Columns>
+            <PropertyColumn Property="x => x.Nominativo" Title="Nominativo" />
+            <PropertyColumn Property="x => x.Azienda" Title="Azienda" />
+            <PropertyColumn Property="x => x.IsAttivo" Title="Attivo" />
+            <TemplateColumn Title="" Sortable="false" Filterable="false">
+                <CellTemplate>
+                    <MudIconButton Icon="@Icons.Material.Filled.Edit" Size="Size.Small"
+                                   OnClick="@(() => OpenEditDialog(context.Item))" />
+                </CellTemplate>
+            </TemplateColumn>
+        </Columns>
+        <NoRecordsContent>
+            <MudText>Nessuna persona. Premi "Nuova" per aggiungerne una.</MudText>
+        </NoRecordsContent>
+    </MudDataGrid>
+</MudContainer>
+
+@code {
+    private List<Persona> _persone = new();
+    private bool _loading = true;
+
+    protected override async Task OnInitializedAsync() => await ReloadAsync();
+
+    private async Task ReloadAsync()
+    {
+        _loading = true;
+        var rows = await Manager.ListaTutteAsync();
+        _persone = rows.ToList();
+        _loading = false;
+    }
+
+    private async Task OpenCreateDialog()
+    {
+        var dlg = await DialogService.ShowAsync<PersonaEditDialog>("Nuova persona");
+        var result = await dlg.Result;
+        if (result is { Canceled: false })
+        {
+            Snackbar.Add("Persona creata.", Severity.Success);
+            await ReloadAsync();
+        }
+    }
+
+    private async Task OpenEditDialog(Persona p)
+    {
+        var parameters = new DialogParameters<PersonaEditDialog>
+        {
+            { x => x.ToEdit, p }
+        };
+        var dlg = await DialogService.ShowAsync<PersonaEditDialog>("Modifica persona", parameters);
+        var result = await dlg.Result;
+        if (result is { Canceled: false })
+        {
+            Snackbar.Add("Persona aggiornata.", Severity.Success);
+            await ReloadAsync();
+        }
+    }
+}

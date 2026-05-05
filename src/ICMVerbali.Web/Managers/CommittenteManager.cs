@@ -35,9 +35,22 @@ public sealed class CommittenteManager : ICommittenteManager
         return committente;
     }
 
+    public async Task AggiornaAsync(Committente committente, CancellationToken ct = default)
+    {
+        if (committente.Id == Guid.Empty)
+            throw new ArgumentException("Id committente mancante.", nameof(committente));
+        if (string.IsNullOrWhiteSpace(committente.RagioneSociale))
+            throw new ArgumentException("Ragione sociale obbligatoria.");
+
+        await _repo.UpdateAsync(committente, ct);
+    }
+
     public Task<Committente?> GetAsync(Guid id, CancellationToken ct = default)
         => _repo.GetByIdAsync(id, ct);
 
     public Task<IReadOnlyList<Committente>> ListaAttiviAsync(CancellationToken ct = default)
         => _repo.GetAttiviAsync(ct);
+
+    public Task<IReadOnlyList<Committente>> ListaTuttiAsync(CancellationToken ct = default)
+        => _repo.GetAllAsync(ct);
 }

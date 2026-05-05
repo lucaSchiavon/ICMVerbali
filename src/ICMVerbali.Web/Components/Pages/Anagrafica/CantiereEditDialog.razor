@@ -1,0 +1,88 @@
+@using ICMVerbali.Web.Entities
+@using ICMVerbali.Web.Managers.Interfaces
+@inject ICantiereManager Manager
+@inject ISnackbar Snackbar
+
+<MudDialog>
+    <DialogContent>
+        <MudForm @ref="_form" Model="@_model">
+            <MudTextField @bind-Value="_model.Ubicazione"
+                          Label="Ubicazione" Required="true" RequiredError="Ubicazione obbligatoria." />
+            <MudTextField @bind-Value="_model.Tipologia"
+                          Label="Tipologia" Required="true" RequiredError="Tipologia obbligatoria."
+                          Lines="2" Class="mt-3" />
+            <MudNumericField @bind-Value="_model.ImportoAppalto"
+                             Label="Importo appalto (€)" Format="N2"
+                             HelperText="Opzionale" Class="mt-3" />
+            @if (ToEdit is not null)
+            {
+                <MudCheckBox @bind-Value="_model.IsAttivo" Label="Attivo" Class="mt-3" />
+            }
+        </MudForm>
+    </DialogContent>
+    <DialogActions>
+        <MudButton OnClick="Cancel">Annulla</MudButton>
+        <MudButton Color="Color.Primary" Variant="Variant.Filled" OnClick="Submit" Disabled="_busy">
+            @(ToEdit is null ? "Crea" : "Salva")
+        </MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter] private IMudDialogInstance MudDialog { get; set; } = null!;
+    [Parameter] public Cantiere? ToEdit { get; set; }
+
+    private MudForm _form = null!;
+    private FormModel _model = new();
+    private bool _busy;
+
+    protected override void OnInitialized()
+    {
+        if (ToEdit is not null)
+        {
+            _model.Ubicazione = ToEdit.Ubicazione;
+            _model.Tipologia = ToEdit.Tipologia;
+            _model.ImportoAppalto = ToEdit.ImportoAppalto;
+            _model.IsAttivo = ToEdit.IsAttivo;
+        }
+    }
+
+    private async Task Submit()
+    {
+        await _form.ValidateAsync();
+        if (!_form.IsValid) return;
+
+        _busy = true;
+        try
+        {
+            if (ToEdit is null)
+            {
+                await Manager.CreaAsync(_model.Ubicazione!, _model.Tipologia!, _model.ImportoAppalto);
+            }
+            else
+            {
+                ToEdit.Ubicazione = _model.Ubicazione!;
+                ToEdit.Tipologia = _model.Tipologia!;
+                ToEdit.ImportoAppalto = _model.ImportoAppalto;
+                ToEdit.IsAttivo = _model.IsAttivo;
+                await Manager.AggiornaAsync(ToEdit);
+            }
+            MudDialog.Close(DialogResult.Ok(true));
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"Errore: {ex.Message}", Severity.Error);
+            _busy = false;
+        }
+    }
+
+    private void Cancel() => MudDialog.Cancel();
+
+    private sealed class FormModel
+    {
+        public string? Ubicazione { get; set; }
+        public string? Tipologia { get; set; }
+        public decimal? ImportoAppalto { get; set; }
+        public bool IsAttivo { get; set; } = true;
+    }
+}

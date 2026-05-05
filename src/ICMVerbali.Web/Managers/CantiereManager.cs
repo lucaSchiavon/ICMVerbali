@@ -29,9 +29,24 @@ public sealed class CantiereManager : ICantiereManager
         return cantiere;
     }
 
+    public async Task AggiornaAsync(Cantiere cantiere, CancellationToken ct = default)
+    {
+        if (cantiere.Id == Guid.Empty)
+            throw new ArgumentException("Id cantiere mancante.", nameof(cantiere));
+        if (string.IsNullOrWhiteSpace(cantiere.Ubicazione))
+            throw new ArgumentException("Ubicazione obbligatoria.");
+        if (string.IsNullOrWhiteSpace(cantiere.Tipologia))
+            throw new ArgumentException("Tipologia obbligatoria.");
+
+        await _repo.UpdateAsync(cantiere, ct);
+    }
+
     public Task<Cantiere?> GetAsync(Guid id, CancellationToken ct = default)
         => _repo.GetByIdAsync(id, ct);
 
     public Task<IReadOnlyList<Cantiere>> ListaAttiviAsync(CancellationToken ct = default)
         => _repo.GetAttiviAsync(ct);
+
+    public Task<IReadOnlyList<Cantiere>> ListaTuttiAsync(CancellationToken ct = default)
+        => _repo.GetAllAsync(ct);
 }

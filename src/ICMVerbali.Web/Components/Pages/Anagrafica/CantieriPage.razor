@@ -1,0 +1,79 @@
+@page "/anagrafica/cantieri"
+@attribute [Authorize]
+@rendermode InteractiveServer
+@using ICMVerbali.Web.Entities
+@using ICMVerbali.Web.Managers.Interfaces
+@inject ICantiereManager Manager
+@inject IDialogService DialogService
+@inject ISnackbar Snackbar
+
+<PageTitle>Cantieri — ICMVerbali</PageTitle>
+
+<MudContainer MaxWidth="MaxWidth.Large" Class="mt-4">
+    <MudStack Row="true" Justify="Justify.SpaceBetween" AlignItems="AlignItems.Center" Class="mb-4">
+        <MudText Typo="Typo.h4">Cantieri</MudText>
+        <MudButton Variant="Variant.Filled" Color="Color.Primary"
+                   StartIcon="@Icons.Material.Filled.Add" OnClick="OpenCreateDialog">
+            Nuovo
+        </MudButton>
+    </MudStack>
+
+    <MudDataGrid T="Cantiere" Items="_cantieri" Loading="_loading" Hover="true" Dense="true">
+        <Columns>
+            <PropertyColumn Property="x => x.Ubicazione" Title="Ubicazione" />
+            <PropertyColumn Property="x => x.Tipologia" Title="Tipologia" />
+            <PropertyColumn Property="x => x.ImportoAppalto" Title="Importo appalto" Format="C2" />
+            <PropertyColumn Property="x => x.IsAttivo" Title="Attivo" />
+            <TemplateColumn Title="" Sortable="false" Filterable="false">
+                <CellTemplate>
+                    <MudIconButton Icon="@Icons.Material.Filled.Edit" Size="Size.Small"
+                                   OnClick="@(() => OpenEditDialog(context.Item))" />
+                </CellTemplate>
+            </TemplateColumn>
+        </Columns>
+        <NoRecordsContent>
+            <MudText>Nessun cantiere. Premi "Nuovo" per aggiungerne uno.</MudText>
+        </NoRecordsContent>
+    </MudDataGrid>
+</MudContainer>
+
+@code {
+    private List<Cantiere> _cantieri = new();
+    private bool _loading = true;
+
+    protected override async Task OnInitializedAsync() => await ReloadAsync();
+
+    private async Task ReloadAsync()
+    {
+        _loading = true;
+        var rows = await Manager.ListaTuttiAsync();
+        _cantieri = rows.ToList();
+        _loading = false;
+    }
+
+    private async Task OpenCreateDialog()
+    {
+        var dlg = await DialogService.ShowAsync<CantiereEditDialog>("Nuovo cantiere");
+        var result = await dlg.Result;
+        if (result is { Canceled: false })
+        {
+            Snackbar.Add("Cantiere creato.", Severity.Success);
+            await ReloadAsync();
+        }
+    }
+
+    private async Task OpenEditDialog(Cantiere c)
+    {
+        var parameters = new DialogParameters<CantiereEditDialog>
+        {
+            { x => x.ToEdit, c }
+        };
+        var dlg = await DialogService.ShowAsync<CantiereEditDialog>("Modifica cantiere", parameters);
+        var result = await dlg.Result;
+        if (result is { Canceled: false })
+        {
+            Snackbar.Add("Cantiere aggiornato.", Severity.Success);
+            await ReloadAsync();
+        }
+    }
+}

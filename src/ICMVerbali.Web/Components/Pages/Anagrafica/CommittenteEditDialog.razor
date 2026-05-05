@@ -1,0 +1,95 @@
+@using ICMVerbali.Web.Entities
+@using ICMVerbali.Web.Managers.Interfaces
+@inject ICommittenteManager Manager
+@inject ISnackbar Snackbar
+
+<MudDialog>
+    <DialogContent>
+        <MudForm @ref="_form" Model="@_model">
+            <MudTextField @bind-Value="_model.RagioneSociale"
+                          Label="Ragione sociale" Required="true" RequiredError="Obbligatoria." />
+            <MudTextField @bind-Value="_model.Indirizzo" Label="Indirizzo" Class="mt-3" />
+            <MudTextField @bind-Value="_model.CodiceFiscale" Label="Codice fiscale" Class="mt-3" />
+            <MudTextField @bind-Value="_model.PartitaIva" Label="Partita IVA" Class="mt-3" />
+            <MudTextField @bind-Value="_model.NumeroIscrizioneRegistroImprese"
+                          Label="N. iscrizione Registro Imprese" Class="mt-3" />
+            @if (ToEdit is not null)
+            {
+                <MudCheckBox @bind-Value="_model.IsAttivo" Label="Attivo" Class="mt-3" />
+            }
+        </MudForm>
+    </DialogContent>
+    <DialogActions>
+        <MudButton OnClick="Cancel">Annulla</MudButton>
+        <MudButton Color="Color.Primary" Variant="Variant.Filled" OnClick="Submit" Disabled="_busy">
+            @(ToEdit is null ? "Crea" : "Salva")
+        </MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter] private IMudDialogInstance MudDialog { get; set; } = null!;
+    [Parameter] public Committente? ToEdit { get; set; }
+
+    private MudForm _form = null!;
+    private FormModel _model = new();
+    private bool _busy;
+
+    protected override void OnInitialized()
+    {
+        if (ToEdit is not null)
+        {
+            _model.RagioneSociale = ToEdit.RagioneSociale;
+            _model.Indirizzo = ToEdit.Indirizzo;
+            _model.CodiceFiscale = ToEdit.CodiceFiscale;
+            _model.PartitaIva = ToEdit.PartitaIva;
+            _model.NumeroIscrizioneRegistroImprese = ToEdit.NumeroIscrizioneRegistroImprese;
+            _model.IsAttivo = ToEdit.IsAttivo;
+        }
+    }
+
+    private async Task Submit()
+    {
+        await _form.ValidateAsync();
+        if (!_form.IsValid) return;
+
+        _busy = true;
+        try
+        {
+            if (ToEdit is null)
+            {
+                await Manager.CreaAsync(
+                    _model.RagioneSociale!, _model.Indirizzo, _model.CodiceFiscale,
+                    _model.PartitaIva, _model.NumeroIscrizioneRegistroImprese);
+            }
+            else
+            {
+                ToEdit.RagioneSociale = _model.RagioneSociale!;
+                ToEdit.Indirizzo = _model.Indirizzo;
+                ToEdit.CodiceFiscale = _model.CodiceFiscale;
+                ToEdit.PartitaIva = _model.PartitaIva;
+                ToEdit.NumeroIscrizioneRegistroImprese = _model.NumeroIscrizioneRegistroImprese;
+                ToEdit.IsAttivo = _model.IsAttivo;
+                await Manager.AggiornaAsync(ToEdit);
+            }
+            MudDialog.Close(DialogResult.Ok(true));
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"Errore: {ex.Message}", Severity.Error);
+            _busy = false;
+        }
+    }
+
+    private void Cancel() => MudDialog.Cancel();
+
+    private sealed class FormModel
+    {
+        public string? RagioneSociale { get; set; }
+        public string? Indirizzo { get; set; }
+        public string? CodiceFiscale { get; set; }
+        public string? PartitaIva { get; set; }
+        public string? NumeroIscrizioneRegistroImprese { get; set; }
+        public bool IsAttivo { get; set; } = true;
+    }
+}
