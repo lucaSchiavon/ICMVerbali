@@ -1,0 +1,16 @@
+@page "/access-denied"
+@layout ICMVerbali.Web.Components.Layout.MinimalLayout
+@using Microsoft.AspNetCore.Authorization
+@attribute [AllowAnonymous]
+
+<PageTitle>Accesso negato — ICMVerbali</PageTitle>
+
+<MudContainer MaxWidth="MaxWidth.Small">
+    <MudPaper Elevation="2" Class="pa-8 text-center">
+        <MudText Typo="Typo.h4" Color="Color.Error" GutterBottom="true">Accesso negato</MudText>
+        <MudText Typo="Typo.body1" Class="mb-4">
+            Non hai i permessi necessari per accedere a questa pagina.
+        </MudText>
+        <a href="/" class="btn btn-primary">Torna alla home</a>
+    </MudPaper>
+</MudContainer>

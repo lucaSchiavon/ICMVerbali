@@ -1,0 +1,21 @@
+@inherits LayoutComponentBase
+@using ICMVerbali.Web.Theme
+
+@* Layout senza sidebar/navmenu, usato per pagine pre-auth (login, access-denied).
+   Replica i provider MudBlazor presenti in MainLayout perche' i layout sono
+   alternativi: solo uno e' attivo per ogni rendering. *@
+
+<MudThemeProvider Theme="@AppTheme.Default" />
+<MudPopoverProvider />
+<MudDialogProvider />
+<MudSnackbarProvider />
+
+<main class="d-flex flex-column min-vh-100 align-items-center justify-content-center p-4">
+    @Body
+</main>
+
+<div id="blazor-error-ui" data-nosnippet>
+    An unhandled error has occurred.
+    <a href="." class="reload">Reload</a>
+    <span class="dismiss">🗙</span>
+</div>

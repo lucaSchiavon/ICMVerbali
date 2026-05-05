@@ -1,0 +1,49 @@
+@page "/login"
+@layout ICMVerbali.Web.Components.Layout.MinimalLayout
+@using Microsoft.AspNetCore.Authorization
+@attribute [AllowAnonymous]
+
+<PageTitle>Login — ICMVerbali</PageTitle>
+
+@* Pagina static-rendered: niente @rendermode. Il submit e' un POST HTML standard
+   verso /auth/login (gestito dal Minimal API endpoint in Program.cs).
+   AntiforgeryToken e' obbligatorio: app.UseAntiforgery() lo valida. *@
+
+<MudContainer MaxWidth="MaxWidth.Small">
+    <MudPaper Elevation="2" Class="pa-8">
+        <MudText Typo="Typo.h4" Color="Color.Primary" GutterBottom="true">ICMVerbali</MudText>
+        <MudText Typo="Typo.h6" GutterBottom="true">Accedi</MudText>
+
+        @if (!string.IsNullOrEmpty(ErrorMessage))
+        {
+            <MudAlert Severity="Severity.Error" Class="mb-4">@ErrorMessage</MudAlert>
+        }
+
+        <form method="post" action="/auth/login" class="mt-2">
+            <AntiforgeryToken />
+            @if (!string.IsNullOrEmpty(ReturnUrl))
+            {
+                <input type="hidden" name="returnUrl" value="@ReturnUrl" />
+            }
+
+            <div class="mb-3">
+                <label for="username" class="form-label">Username</label>
+                <input id="username" name="username" type="text" required autocomplete="username"
+                       class="form-control" autofocus />
+            </div>
+
+            <div class="mb-4">
+                <label for="password" class="form-label">Password</label>
+                <input id="password" name="password" type="password" required autocomplete="current-password"
+                       class="form-control" />
+            </div>
+
+            <button type="submit" class="btn btn-primary w-100">Accedi</button>
+        </form>
+    </MudPaper>
+</MudContainer>
+
+@code {
+    [SupplyParameterFromQuery] public string? ReturnUrl { get; set; }
+    [SupplyParameterFromQuery] public string? ErrorMessage { get; set; }
+}

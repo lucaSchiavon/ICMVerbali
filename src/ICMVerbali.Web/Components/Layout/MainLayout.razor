@@ -1,4 +1,4 @@
-﻿@inherits LayoutComponentBase
+@inherits LayoutComponentBase
 @using ICMVerbali.Web.Theme
 
 <MudThemeProvider Theme="@AppTheme.Default" />
@@ -12,8 +12,19 @@
     </div>
 
     <main>
-        <div class="top-row px-4">
-            <a href="https://learn.microsoft.com/aspnet/core/" target="_blank">About</a>
+        <div class="top-row px-4 d-flex justify-content-end align-items-center">
+            <AuthorizeView>
+                <Authorized>
+                    <span class="me-3 text-muted">@context.User.Identity?.Name</span>
+                    <form method="post" action="/auth/logout" class="d-inline m-0">
+                        <AntiforgeryToken />
+                        <button type="submit" class="btn btn-link p-0">Logout</button>
+                    </form>
+                </Authorized>
+                <NotAuthorized>
+                    <a href="/login">Login</a>
+                </NotAuthorized>
+            </AuthorizeView>
         </div>
 
         <article class="content px-4">
