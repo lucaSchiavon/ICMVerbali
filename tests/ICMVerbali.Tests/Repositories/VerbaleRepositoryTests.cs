@@ -10,15 +10,182 @@ public class VerbaleRepositoryTests
     private readonly TestSqlConnectionFactory _factory = new();
 
     [Fact]
-    public async Task Create_bozza_then_GetById_returns_record_with_null_numero_anno()
+    public async Task CreateBozzaWithChildren_inserts_verbale_and_all_children_in_transaction()
     {
         var verbaleRepo = new VerbaleRepository(_factory);
-        var cantiereRepo = new CantiereRepository(_factory);
-        var committenteRepo = new CommittenteRepository(_factory);
-        var impresaRepo = new ImpresaAppaltatriceRepository(_factory);
-        var personaRepo = new PersonaRepository(_factory);
-        var utenteRepo = new UtenteRepository(_factory);
+        var anagrafiche = await SeedAnagraficheAsync();
 
+        // Una sola riga per tabella checklist: il test verifica la transazione,
+        // non la cardinalita' del catalogo (gia' coperta dai test catalogo).
+        var verbaleId = Guid.NewGuid();
+        var verbale = BuildBozza(verbaleId, anagrafiche);
+
+        var attivita = new[]
+        {
+            new VerbaleAttivita
+            {
+                VerbaleId = verbaleId,
+                CatalogoTipoAttivitaId = await GetFirstCatalogoIdAsync("CatalogoTipoAttivita"),
+                Selezionato = false,
+            }
+        };
+        var documenti = new[]
+        {
+            new VerbaleDocumento
+            {
+                VerbaleId = verbaleId,
+                CatalogoTipoDocumentoId = await GetFirstCatalogoIdAsync("CatalogoTipoDocumento"),
+                Applicabile = false,
+                Conforme = false,
+            }
+        };
+        var apprestamenti = new[]
+        {
+            new VerbaleApprestamento
+            {
+                VerbaleId = verbaleId,
+                CatalogoTipoApprestamentoId = await GetFirstCatalogoIdAsync("CatalogoTipoApprestamento"),
+                Applicabile = false,
+                Conforme = false,
+            }
+        };
+        var condizioniAmbientali = new[]
+        {
+            new VerbaleCondizioneAmbientale
+            {
+                VerbaleId = verbaleId,
+                CatalogoTipoCondizioneAmbientaleId = await GetFirstCatalogoIdAsync("CatalogoTipoCondizioneAmbientale"),
+                Conforme = false,
+                NonConforme = false,
+            }
+        };
+        var audit = new VerbaleAudit
+        {
+            Id = Guid.NewGuid(),
+            VerbaleId = verbaleId,
+            UtenteId = anagrafiche.UtenteId,
+            DataEvento = DateTime.UtcNow,
+            EventoTipo = EventoAuditTipo.Creazione,
+        };
+
+        try
+        {
+            await verbaleRepo.CreateBozzaWithChildrenAsync(
+                verbale, attivita, documenti, apprestamenti, condizioniAmbientali, audit);
+
+            var read = await verbaleRepo.GetByIdAsync(verbaleId);
+            Assert.NotNull(read);
+            Assert.Equal(StatoVerbale.Bozza, read!.Stato);
+            Assert.Null(read.Numero);
+            Assert.Null(read.Anno);
+
+            // Conta righe figlie: una per tabella, piu' la riga di audit.
+            await using var conn = await _factory.CreateOpenConnectionAsync();
+            Assert.Equal(1, await CountAsync(conn, "VerbaleAttivita", verbaleId));
+            Assert.Equal(1, await CountAsync(conn, "VerbaleDocumento", verbaleId));
+            Assert.Equal(1, await CountAsync(conn, "VerbaleApprestamento", verbaleId));
+            Assert.Equal(1, await CountAsync(conn, "VerbaleCondizioneAmbientale", verbaleId));
+            Assert.Equal(1, await CountAsync(conn, "VerbaleAudit", verbaleId));
+        }
+        finally
+        {
+            await CleanupAsync(verbaleId, anagrafiche);
+        }
+    }
+
+    [Fact]
+    public async Task GetBozzeAsync_includes_created_bozza_with_joined_anagrafiche()
+    {
+        var verbaleRepo = new VerbaleRepository(_factory);
+        var anagrafiche = await SeedAnagraficheAsync();
+
+        var verbaleId = Guid.NewGuid();
+        var verbale = BuildBozza(verbaleId, anagrafiche);
+        var audit = new VerbaleAudit
+        {
+            Id = Guid.NewGuid(),
+            VerbaleId = verbaleId,
+            UtenteId = anagrafiche.UtenteId,
+            DataEvento = DateTime.UtcNow,
+            EventoTipo = EventoAuditTipo.Creazione,
+        };
+
+        try
+        {
+            await verbaleRepo.CreateBozzaWithChildrenAsync(
+                verbale,
+                Array.Empty<VerbaleAttivita>(),
+                Array.Empty<VerbaleDocumento>(),
+                Array.Empty<VerbaleApprestamento>(),
+                Array.Empty<VerbaleCondizioneAmbientale>(),
+                audit);
+
+            var bozze = await verbaleRepo.GetBozzeAsync();
+            var item = bozze.FirstOrDefault(b => b.Id == verbaleId);
+
+            Assert.NotNull(item);
+            Assert.Equal(StatoVerbale.Bozza, item!.Stato);
+            Assert.Null(item.Numero);
+            Assert.Null(item.Anno);
+            Assert.Equal(anagrafiche.CantiereUbicazione, item.CantiereUbicazione);
+            Assert.Equal(anagrafiche.CommittenteRagioneSociale, item.CommittenteRagioneSociale);
+            Assert.Equal(anagrafiche.ImpresaRagioneSociale, item.ImpresaAppaltatriceRagioneSociale);
+        }
+        finally
+        {
+            await CleanupAsync(verbaleId, anagrafiche);
+        }
+    }
+
+    [Fact]
+    public async Task GetByDataAsync_excludes_bozze()
+    {
+        // Le bozze devono comparire SOLO in GetBozzeAsync, non nella lista del giorno
+        // (Home: due sezioni distinte). Questo test blinda quella separazione.
+        var verbaleRepo = new VerbaleRepository(_factory);
+        var anagrafiche = await SeedAnagraficheAsync();
+
+        var verbaleId = Guid.NewGuid();
+        var verbale = BuildBozza(verbaleId, anagrafiche);
+        var audit = new VerbaleAudit
+        {
+            Id = Guid.NewGuid(),
+            VerbaleId = verbaleId,
+            UtenteId = anagrafiche.UtenteId,
+            DataEvento = DateTime.UtcNow,
+            EventoTipo = EventoAuditTipo.Creazione,
+        };
+
+        try
+        {
+            await verbaleRepo.CreateBozzaWithChildrenAsync(
+                verbale,
+                Array.Empty<VerbaleAttivita>(),
+                Array.Empty<VerbaleDocumento>(),
+                Array.Empty<VerbaleApprestamento>(),
+                Array.Empty<VerbaleCondizioneAmbientale>(),
+                audit);
+
+            var deldgg = await verbaleRepo.GetByDataAsync(verbale.Data);
+            Assert.DoesNotContain(deldgg, b => b.Id == verbaleId);
+        }
+        finally
+        {
+            await CleanupAsync(verbaleId, anagrafiche);
+        }
+    }
+
+    // --------- helpers ----------------------------------------------------
+
+    private sealed record AnagraficheSeed(
+        Guid CantiereId, string CantiereUbicazione,
+        Guid CommittenteId, string CommittenteRagioneSociale,
+        Guid ImpresaId, string ImpresaRagioneSociale,
+        Guid PersonaId,
+        Guid UtenteId);
+
+    private async Task<AnagraficheSeed> SeedAnagraficheAsync()
+    {
         var suffix = Guid.NewGuid().ToString("N");
         var cantiere = new Cantiere { Id = Guid.NewGuid(), Ubicazione = $"Test loc {suffix}", Tipologia = "Test", IsAttivo = true };
         var committente = new Committente { Id = Guid.NewGuid(), RagioneSociale = $"Test Cmt {suffix}", IsAttivo = true };
@@ -35,67 +202,66 @@ public class VerbaleRepositoryTests
             UpdatedAt = DateTime.UtcNow,
         };
 
-        var oggi = DateOnly.FromDateTime(DateTime.UtcNow);
-        var verbale = new Verbale
-        {
-            Id = Guid.NewGuid(),
-            Numero = null,
-            Anno = null,
-            Data = oggi,
-            CantiereId = cantiere.Id,
-            CommittenteId = committente.Id,
-            ImpresaAppaltatriceId = impresa.Id,
-            RlPersonaId = persona.Id,
-            CspPersonaId = persona.Id,
-            CsePersonaId = persona.Id,
-            DlPersonaId = persona.Id,
-            Esito = null,
-            Meteo = null,
-            TemperaturaCelsius = null,
-            Interferenze = null,
-            InterferenzeNote = null,
-            Stato = StatoVerbale.Bozza,
-            CompilatoDaUtenteId = utente.Id,
-            IsDeleted = false,
-            DeletedAt = null,
-        };
+        await new CantiereRepository(_factory).CreateAsync(cantiere);
+        await new CommittenteRepository(_factory).CreateAsync(committente);
+        await new ImpresaAppaltatriceRepository(_factory).CreateAsync(impresa);
+        await new PersonaRepository(_factory).CreateAsync(persona);
+        await new UtenteRepository(_factory).CreateAsync(utente);
 
-        try
-        {
-            await cantiereRepo.CreateAsync(cantiere);
-            await committenteRepo.CreateAsync(committente);
-            await impresaRepo.CreateAsync(impresa);
-            await personaRepo.CreateAsync(persona);
-            await utenteRepo.CreateAsync(utente);
-            await verbaleRepo.CreateAsync(verbale);
+        return new AnagraficheSeed(
+            cantiere.Id, cantiere.Ubicazione,
+            committente.Id, committente.RagioneSociale,
+            impresa.Id, impresa.RagioneSociale,
+            persona.Id,
+            utente.Id);
+    }
 
-            var read = await verbaleRepo.GetByIdAsync(verbale.Id);
+    private static Verbale BuildBozza(Guid id, AnagraficheSeed a) => new()
+    {
+        Id = id,
+        Numero = null,
+        Anno = null,
+        Data = DateOnly.FromDateTime(DateTime.UtcNow),
+        CantiereId = a.CantiereId,
+        CommittenteId = a.CommittenteId,
+        ImpresaAppaltatriceId = a.ImpresaId,
+        RlPersonaId = a.PersonaId,
+        CspPersonaId = a.PersonaId,
+        CsePersonaId = a.PersonaId,
+        DlPersonaId = a.PersonaId,
+        Esito = null,
+        Meteo = null,
+        TemperaturaCelsius = null,
+        Interferenze = null,
+        InterferenzeNote = null,
+        Stato = StatoVerbale.Bozza,
+        CompilatoDaUtenteId = a.UtenteId,
+        IsDeleted = false,
+        DeletedAt = null,
+    };
 
-            Assert.NotNull(read);
-            Assert.Equal(verbale.Id, read!.Id);
-            Assert.Null(read.Numero);
-            Assert.Null(read.Anno);
-            Assert.Equal(oggi, read.Data);
-            Assert.Equal(cantiere.Id, read.CantiereId);
-            Assert.Equal(persona.Id, read.RlPersonaId);
-            Assert.Equal(persona.Id, read.CspPersonaId);
-            Assert.Null(read.Esito);
-            Assert.Null(read.Meteo);
-            Assert.Equal(StatoVerbale.Bozza, read.Stato);
-            Assert.False(read.IsDeleted);
-            Assert.Equal(utente.Id, read.CompilatoDaUtenteId);
-        }
-        finally
-        {
-            // Ordine cleanup: prima Verbale (cascade libera figlie inesistenti),
-            // poi anagrafiche (FK NO ACTION richiede ordine esplicito).
-            await using var conn = await _factory.CreateOpenConnectionAsync();
-            await conn.ExecuteAsync("DELETE FROM dbo.Verbale WHERE Id = @Id", new { verbale.Id });
-            await conn.ExecuteAsync("DELETE FROM dbo.Utente WHERE Id = @Id", new { utente.Id });
-            await conn.ExecuteAsync("DELETE FROM dbo.Persona WHERE Id = @Id", new { persona.Id });
-            await conn.ExecuteAsync("DELETE FROM dbo.ImpresaAppaltatrice WHERE Id = @Id", new { impresa.Id });
-            await conn.ExecuteAsync("DELETE FROM dbo.Committente WHERE Id = @Id", new { committente.Id });
-            await conn.ExecuteAsync("DELETE FROM dbo.Cantiere WHERE Id = @Id", new { cantiere.Id });
-        }
+    private async Task<Guid> GetFirstCatalogoIdAsync(string tableName)
+    {
+        await using var conn = await _factory.CreateOpenConnectionAsync();
+        return await conn.QueryFirstAsync<Guid>(
+            $"SELECT TOP 1 Id FROM dbo.{tableName} WHERE IsAttivo = 1 ORDER BY Ordine;");
+    }
+
+    private static async Task<int> CountAsync(System.Data.Common.DbConnection conn, string table, Guid verbaleId)
+        => await conn.QuerySingleAsync<int>(
+            $"SELECT COUNT(*) FROM dbo.{table} WHERE VerbaleId = @VerbaleId",
+            new { VerbaleId = verbaleId });
+
+    private async Task CleanupAsync(Guid verbaleId, AnagraficheSeed a)
+    {
+        // Ordine: prima Verbale (cascade libera figlie e audit),
+        // poi anagrafiche (FK NO ACTION richiede ordine esplicito).
+        await using var conn = await _factory.CreateOpenConnectionAsync();
+        await conn.ExecuteAsync("DELETE FROM dbo.Verbale WHERE Id = @Id", new { Id = verbaleId });
+        await conn.ExecuteAsync("DELETE FROM dbo.Utente WHERE Id = @Id", new { Id = a.UtenteId });
+        await conn.ExecuteAsync("DELETE FROM dbo.Persona WHERE Id = @Id", new { Id = a.PersonaId });
+        await conn.ExecuteAsync("DELETE FROM dbo.ImpresaAppaltatrice WHERE Id = @Id", new { Id = a.ImpresaId });
+        await conn.ExecuteAsync("DELETE FROM dbo.Committente WHERE Id = @Id", new { Id = a.CommittenteId });
+        await conn.ExecuteAsync("DELETE FROM dbo.Cantiere WHERE Id = @Id", new { Id = a.CantiereId });
     }
 }

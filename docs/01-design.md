@@ -925,10 +925,45 @@ Durante la scrittura delle entità sono emerse tre raffinature di naming che int
 
 ---
 
+## Addendum 2026-05-06 — B.7 fix render mode + B.8a creazione bozza completa
+
+### B.7 — fix render mode (post-chiusura)
+
+Spostato `@rendermode="@InteractiveServer"` da `MainLayout.razor` a `<Routes />` in `App.razor`. Sintomo originale: errore `Cannot pass parameter 'Body' as RenderFragment to a component that has a different render mode` quando una pagina veniva renderizzata dentro `MainLayout`. Causa: il `RenderFragment` `@Body` non può attraversare confini di render mode (parent statico, layout interattivo). Lezione: in app InteractiveServer "tutta l'app" il render mode si dichiara una volta sola al livello più alto possibile, idealmente sul `<Routes />` dentro `App.razor`. Vedi anche `docs/blazor-circuit.pdf` §2.5.
+
+### B.8a — creazione bozza completa + Home riprogettata
+
+**Repository / Manager**:
+- `IVerbaleRepository.CreateBozzaWithChildrenAsync(Verbale, IEnumerable<VerbaleAttivita>, IEnumerable<VerbaleDocumento>, IEnumerable<VerbaleApprestamento>, IEnumerable<VerbaleCondizioneAmbientale>, VerbaleAudit, ct)` — inserisce in **una sola transazione** (`BeginTransaction` + commit/rollback) il record `Verbale`, le righe figlie checklist e la riga di audit `Creazione`. Le entità "lista" (`Presenza`, `PrescrizioneCse`, `Foto`, `Firma`) restano vuote: vengono popolate dal wizard.
+- `IVerbaleRepository.GetByDataAsync(DateOnly)` e `GetBozzeAsync()` ritornano `IReadOnlyList<VerbaleListItem>` con JOIN su `Cantiere`/`Committente`/`ImpresaAppaltatrice` per evitare N+1 lato Home. Esclude soft-deleted; `GetByDataAsync` esclude anche bozze (`Stato > 0`).
+- `VerbaleManager.CreaBozzaAsync` orchestrazione: fetch dei 4 cataloghi attivi in parallelo (`Task.WhenAll`), genera **una riga per ogni voce di catalogo** con flag a `false`, costruisce l'audit `Creazione` con `UtenteId = compilatoDaUtenteId`, chiama `CreateBozzaWithChildrenAsync`. Le checklist sono pre-popolate per snapshot: voci di catalogo disattivate dopo la creazione **non spariscono** dal verbale.
+- `IVerbaleManager.GetVerbaliDelGiornoAsync(DateOnly)` e `GetBozzeAsync()` esposti per la Home.
+
+**DTO**: `Models/VerbaleListItem.cs` — record di sola lettura con i campi joinati. È il primo abitante della cartella `Models/`, riservata a DTO/ViewModel per la UI (CLAUDE.md struttura).
+
+**Home riprogettata** (`Pages/Home.razor`):
+- Due `MudPaper` affiancate (`MudGrid` xs=12 md=6): "Verbali di oggi" e "Bozze in corso", ciascuna con `MudList<VerbaleListItem>` o empty state.
+- `MudFab` "+" fissato in basso a destra (`position: fixed`) → naviga a `/verbali/nuovo`.
+- Le righe della lista sono **non cliccabili in B.8a**: il routing verso `/verbali/{id}` arriverà in B.8b. Solo il FAB è funzionante.
+
+**Stub `/verbali/nuovo`**: `Pages/Verbali/VerbaleEditor.razor` mostra un `MudAlert` "Wizard in costruzione (B.8b)" — esiste solo per non rompere il link del FAB. Verrà rimpiazzato dal wizard vero in B.8b.
+
+**Test**: `VerbaleRepositoryTests` riscritto in 3 test (12/12 pass complessivi):
+1. `CreateBozzaWithChildren_inserts_verbale_and_all_children_in_transaction` — verifica conteggio righe nelle 4 tabelle checklist + audit dopo la transazione.
+2. `GetBozzeAsync_includes_created_bozza_with_joined_anagrafiche` — verifica che il JOIN popola correttamente `CantiereUbicazione` e ragioni sociali.
+3. `GetByDataAsync_excludes_bozze` — blinda la separazione "Verbali di oggi" / "Bozze" sulla Home.
+
+**Decisioni di design ratificate**:
+- **"Figlie vuote"** = checklist (4 tabelle a PK composta) **pre-popolate** una riga per voce con flag a false; entità lista (Presenza/Prescrizioni/Foto/Firma) restano davvero vuote.
+- **Audit `Creazione`** scritto contestualmente alla creazione, dentro la stessa transazione del Verbale.
+- **Numero/Anno restano `null`** in bozza (consistente con §9.10).
+
+---
+
 ## Stato del documento
 
 - **Sezioni 1-8, 10**: approvate implicitamente (nessuna contestazione).
 - **Sezione 9**: ✅ **22/22 voci approvate il 2026-05-05.**
-- **Sotto-fasi B**: B.1 / B.2 / B.3 completate. **B.4 completata 2026-05-05**: `ICMVerbaliDb` creato su `.\SQLEXPRESS`, 19 tabelle + 31 voci di seed applicate via `Invoke-Sqlcmd`. **B.5 completata 2026-05-05**: 10 Repository Dapper + 10 Manager + DI Scoped + 10 smoke test xUnit (10/10 pass). Fix Dapper-`DateOnly` documentato in Addendum. **B.6 completata 2026-05-05**: cookie auth, login/logout Minimal API, `IPasswordHasherService` (PBKDF2 via Identity), `DatabaseSeeder` `IHostedService` idempotente, policy `RequireAdmin`. **Zero NuGet aggiuntivi** (`PasswordHasher<TUser>` arriva da framework reference). Login flow verificato end-to-end via curl. **B.7 completata 2026-05-05**: anagrafiche CRUD UI (5 pagine `/anagrafica/*` con `MudDataGrid` + dialog Crea/Modifica), `AnagraficaPicker<T>` generic per il wizard B.8, NavMenu integrato, policy `RequireAdmin` su `/anagrafica/utenti`. Cambio password utente rimandato a B.7+.
+- **Sotto-fasi B**: B.1 / B.2 / B.3 completate. **B.4 completata 2026-05-05**: `ICMVerbaliDb` creato su `.\SQLEXPRESS`, 19 tabelle + 31 voci di seed applicate via `Invoke-Sqlcmd`. **B.5 completata 2026-05-05**: 10 Repository Dapper + 10 Manager + DI Scoped + 10 smoke test xUnit (10/10 pass). Fix Dapper-`DateOnly` documentato in Addendum. **B.6 completata 2026-05-05**: cookie auth, login/logout Minimal API, `IPasswordHasherService` (PBKDF2 via Identity), `DatabaseSeeder` `IHostedService` idempotente, policy `RequireAdmin`. **Zero NuGet aggiuntivi** (`PasswordHasher<TUser>` arriva da framework reference). Login flow verificato end-to-end via curl. **B.7 completata 2026-05-05**: anagrafiche CRUD UI (5 pagine `/anagrafica/*` con `MudDataGrid` + dialog Crea/Modifica), `AnagraficaPicker<T>` generic per il wizard B.8, NavMenu integrato, policy `RequireAdmin` su `/anagrafica/utenti`. Cambio password utente rimandato a B.7+. **B.8a completata 2026-05-06**: `IVerbaleRepository`/`Manager` estesi con creazione bozza completa transazionale (Verbale + 4 checklist pre-popolate + audit), Home riprogettata (due liste + FAB "+"), DTO `VerbaleListItem`, stub `/verbali/nuovo`. 12/12 test in pass. Fix render mode B.7 documentato in Addendum 2026-05-06.
 
 **Documento congelato come baseline di design.** Eventuali deviazioni emerse in implementazione devono aggiornare questo file in modo additivo (vedi CLAUDE.md "Documento vivo"). Si procede con la Fase B secondo il piano concordato in chat.

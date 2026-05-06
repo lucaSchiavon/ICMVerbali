@@ -1,18 +1,122 @@
 @page "/"
 @attribute [Authorize]
 @rendermode InteractiveServer
+@using ICMVerbali.Web.Entities.Enums
+@using ICMVerbali.Web.Managers.Interfaces
+@using ICMVerbali.Web.Models
+@inject IVerbaleManager VerbaleManager
+@inject NavigationManager Nav
 
 <PageTitle>Home — ICMVerbali</PageTitle>
 
-<MudContainer MaxWidth="MaxWidth.Large" Class="mt-8">
+<MudContainer MaxWidth="MaxWidth.Large" Class="mt-6">
     <AuthorizeView>
         <Authorized>
             <MudText Typo="Typo.h4" GutterBottom="true">
                 Benvenuto, @context.User.Identity?.Name
             </MudText>
-            <MudText Typo="Typo.body1" Class="mb-4">
-                La lista verbali del giorno e il pulsante "+" verranno aggiunti in B.8.
+            <MudText Typo="Typo.subtitle1" Class="mb-6 mud-text-secondary">
+                @_oggi.ToString("dddd d MMMM yyyy")
             </MudText>
+
+            <MudGrid>
+                <MudItem xs="12" md="6">
+                    <MudPaper Class="pa-4" Elevation="1">
+                        <MudText Typo="Typo.h6" GutterBottom="true">Verbali di oggi</MudText>
+                        @if (_loading)
+                        {
+                            <MudProgressLinear Indeterminate="true" Class="my-4" />
+                        }
+                        else if (_verbaliOggi.Count == 0)
+                        {
+                            <MudText Class="mud-text-secondary">Nessun verbale registrato oggi.</MudText>
+                        }
+                        else
+                        {
+                            <MudList T="VerbaleListItem" Dense="true">
+                                @foreach (var v in _verbaliOggi)
+                                {
+                                    <MudListItem T="VerbaleListItem" Icon="@Icons.Material.Filled.Description">
+                                        <MudText Typo="Typo.body1">
+                                            <strong>@FormatNumero(v)</strong> — @v.CantiereUbicazione
+                                        </MudText>
+                                        <MudText Typo="Typo.caption" Class="mud-text-secondary">
+                                            @v.ImpresaAppaltatriceRagioneSociale · @StatoLabel(v.Stato)
+                                        </MudText>
+                                    </MudListItem>
+                                }
+                            </MudList>
+                        }
+                    </MudPaper>
+                </MudItem>
+
+                <MudItem xs="12" md="6">
+                    <MudPaper Class="pa-4" Elevation="1">
+                        <MudText Typo="Typo.h6" GutterBottom="true">Bozze in corso</MudText>
+                        @if (_loading)
+                        {
+                            <MudProgressLinear Indeterminate="true" Class="my-4" />
+                        }
+                        else if (_bozze.Count == 0)
+                        {
+                            <MudText Class="mud-text-secondary">Nessuna bozza in sospeso.</MudText>
+                        }
+                        else
+                        {
+                            <MudList T="VerbaleListItem" Dense="true">
+                                @foreach (var v in _bozze)
+                                {
+                                    <MudListItem T="VerbaleListItem" Icon="@Icons.Material.Filled.EditNote">
+                                        <MudText Typo="Typo.body1">
+                                            <strong>@v.CantiereUbicazione</strong>
+                                        </MudText>
+                                        <MudText Typo="Typo.caption" Class="mud-text-secondary">
+                                            Data: @v.Data.ToString("dd/MM/yyyy") · ultima modifica @v.UpdatedAt.ToLocalTime().ToString("dd/MM HH:mm")
+                                        </MudText>
+                                    </MudListItem>
+                                }
+                            </MudList>
+                        }
+                    </MudPaper>
+                </MudItem>
+            </MudGrid>
+
+            <MudFab Color="Color.Primary"
+                    StartIcon="@Icons.Material.Filled.Add"
+                    Style="position: fixed; bottom: 32px; right: 32px;"
+                    OnClick="@(() => Nav.NavigateTo("/verbali/nuovo"))"
+                    aria-label="Nuovo verbale" />
         </Authorized>
     </AuthorizeView>
 </MudContainer>
+
+@code {
+    private readonly DateOnly _oggi = DateOnly.FromDateTime(DateTime.Now);
+    private bool _loading = true;
+    private IReadOnlyList<VerbaleListItem> _verbaliOggi = Array.Empty<VerbaleListItem>();
+    private IReadOnlyList<VerbaleListItem> _bozze = Array.Empty<VerbaleListItem>();
+
+    protected override async Task OnInitializedAsync()
+    {
+        var oggiTask = VerbaleManager.GetVerbaliDelGiornoAsync(_oggi);
+        var bozzeTask = VerbaleManager.GetBozzeAsync();
+        await Task.WhenAll(oggiTask, bozzeTask);
+        _verbaliOggi = oggiTask.Result;
+        _bozze = bozzeTask.Result;
+        _loading = false;
+    }
+
+    private static string FormatNumero(VerbaleListItem v)
+        => v.Numero.HasValue && v.Anno.HasValue
+            ? $"VERBALE N. {v.Numero}/{v.Anno}"
+            : "VERBALE";
+
+    private static string StatoLabel(StatoVerbale stato) => stato switch
+    {
+        StatoVerbale.Bozza => "bozza",
+        StatoVerbale.FirmatoCse => "firmato CSE",
+        StatoVerbale.FirmatoImpresa => "firmato Impresa",
+        StatoVerbale.Chiuso => "chiuso",
+        _ => stato.ToString(),
+    };
+}
