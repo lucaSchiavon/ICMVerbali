@@ -427,3 +427,8 @@ FodyWeavers.xsd
 *.msix
 *.msm
 *.msp
+
+# Upload utenti / dati runtime ASP.NET Core (foto verbali, ecc.):
+# generati a runtime sul filesystem locale via IFotoStorageService, non
+# vanno versionati. Path configurato in appsettings (Storage:UploadsBasePath).
+src/ICMVerbali.Web/App_Data/

@@ -14,6 +14,7 @@
 @inject IFotoManager FotoManager
 @inject IDialogService DialogService
 @inject ISnackbar Snackbar
+@inject ILogger<WizardStep9Foto> Logger
 
 <MudPaper Class="pa-6" Elevation="1">
     <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween" Class="mb-2">
@@ -27,44 +28,42 @@
     }
     else
     {
-        @* Due bottoni distinti: Android 13+ Photo Picker non offre l'opzione
-           fotocamera, quindi serve un input dedicato con capture="environment"
-           per aprire direttamente la camera, e un altro senza capture per la
-           galleria. Su iOS entrambi funzionano allo stesso modo. *@
+        @* Due bottoni distinti via InputFile + label-for: Android 13+ Photo
+           Picker non offre l'opzione fotocamera, quindi serve un input dedicato
+           con capture="environment" per aprire la camera. L'input e' nascosto;
+           il MudButton (HtmlTag=label, for=...) funge da activator stilizzato. *@
         <MudGrid Spacing="2" Class="mb-4">
             <MudItem xs="6">
-                <MudFileUpload T="IBrowserFile"
-                               Accept="image/*"
-                               InputAttributes="@_captureAttributes"
-                               FilesChanged="HandleSingleFileAsync">
-                    <ActivatorContent>
-                        <MudButton HtmlTag="label"
-                                   Variant="Variant.Filled"
-                                   Color="Color.Primary"
-                                   StartIcon="@Icons.Material.Filled.PhotoCamera"
-                                   FullWidth="true"
-                                   Size="Size.Large">
-                            Scatta
-                        </MudButton>
-                    </ActivatorContent>
-                </MudFileUpload>
+                <InputFile id="foto-camera-input"
+                           OnChange="HandleCameraInputChange"
+                           accept="image/*"
+                           capture="environment"
+                           style="display: none;" />
+                <MudButton HtmlTag="label"
+                           for="foto-camera-input"
+                           Variant="Variant.Filled"
+                           Color="Color.Primary"
+                           StartIcon="@Icons.Material.Filled.PhotoCamera"
+                           FullWidth="true"
+                           Size="Size.Large">
+                    Scatta
+                </MudButton>
             </MudItem>
             <MudItem xs="6">
-                <MudFileUpload T="IReadOnlyList<IBrowserFile>"
-                               Accept="image/*"
-                               FilesChanged="HandleFilesAsync"
-                               MaximumFileCount="20">
-                    <ActivatorContent>
-                        <MudButton HtmlTag="label"
-                                   Variant="Variant.Outlined"
-                                   Color="Color.Primary"
-                                   StartIcon="@Icons.Material.Filled.PhotoLibrary"
-                                   FullWidth="true"
-                                   Size="Size.Large">
-                            Galleria
-                        </MudButton>
-                    </ActivatorContent>
-                </MudFileUpload>
+                <InputFile id="foto-gallery-input"
+                           OnChange="HandleGalleryInputChange"
+                           accept="image/*"
+                           multiple
+                           style="display: none;" />
+                <MudButton HtmlTag="label"
+                           for="foto-gallery-input"
+                           Variant="Variant.Outlined"
+                           Color="Color.Primary"
+                           StartIcon="@Icons.Material.Filled.PhotoLibrary"
+                           FullWidth="true"
+                           Size="Size.Large">
+                    Galleria
+                </MudButton>
             </MudItem>
         </MudGrid>
 
@@ -175,12 +174,7 @@
     private List<Foto> _foto = new();
     private List<UploadItem> _uploads = new();
 
-    // capture="environment" forza l'apertura della fotocamera posteriore.
-    // Senza questo, su Android 13+ il browser delega al Photo Picker che
-    // non offre l'opzione camera. Su iOS l'attributo e' rispettato allo
-    // stesso modo (apre direttamente la camera).
-    private static readonly IReadOnlyDictionary<string, object> _captureAttributes =
-        new Dictionary<string, object> { ["capture"] = "environment" };
+    private const int MaxGalleryFiles = 20;
 
     protected override async Task OnInitializedAsync()
     {
@@ -189,18 +183,26 @@
         _loading = false;
     }
 
-    // Galleria: 1..N file. Processati in serie per resilienza.
-    private Task HandleFilesAsync(IReadOnlyList<IBrowserFile>? files)
-        => ProcessIncomingAsync(files);
+    // Camera (capture="environment"): un solo file alla volta.
+    private Task HandleCameraInputChange(InputFileChangeEventArgs e)
+        => ProcessIncomingAsync("camera", e.FileCount == 0 ? null : new[] { e.File });
 
-    // Camera (capture="environment"): un solo file alla volta. Wrappa in lista
-    // e riusa la stessa pipeline.
-    private Task HandleSingleFileAsync(IBrowserFile? file)
-        => ProcessIncomingAsync(file is null ? null : new[] { file });
+    // Galleria (multiple): 1..N file. Processati in serie per resilienza.
+    private Task HandleGalleryInputChange(InputFileChangeEventArgs e)
+        => ProcessIncomingAsync("galleria", e.FileCount == 0 ? null : e.GetMultipleFiles(MaxGalleryFiles));
 
-    private async Task ProcessIncomingAsync(IReadOnlyList<IBrowserFile>? files)
+    private async Task ProcessIncomingAsync(string source, IReadOnlyList<IBrowserFile>? files)
     {
         if (files is null || files.Count == 0) return;
+
+        // Log diagnostico utile per testare device diversi (es. iPhone HEIC vs
+        // Android JPEG): una riga per file con name/size/contentType.
+        foreach (var f in files)
+        {
+            Logger.LogInformation(
+                "[FOTO] upload da {Source}: name={Name} size={Size}B type={Type}",
+                source, f.Name, f.Size, f.ContentType);
+        }
 
         // Aggiungi placeholder cards subito (optimistic UI).
         var newUploads = files.Select(f => new UploadItem
@@ -223,9 +225,6 @@
     {
         try
         {
-            // OpenReadStream con cap a 15 MB (sopra i 15 MB il browser spedisce
-            // comunque in chunk via SignalR ma il manager rifiuta poi). Cap qui
-            // lo allarghiamo leggermente per dare margine al browser.
             await using var stream = up.BrowserFile.OpenReadStream(
                 maxAllowedSize: 16L * 1024 * 1024);
 
@@ -238,6 +237,7 @@
         }
         catch (Exception ex)
         {
+            Logger.LogError(ex, "[FOTO] Upload failed per {Name}", up.FileName);
             up.Status = UploadStatus.Failed;
             up.ErrorMessage = ex.Message.Length > 80 ? ex.Message[..80] + "…" : ex.Message;
             StateHasChanged();
