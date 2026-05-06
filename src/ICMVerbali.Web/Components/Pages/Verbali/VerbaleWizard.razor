@@ -80,16 +80,27 @@
                                  OnSubmit="HandleStep8SubmitAsync"
                                  OnBack="@(() => GoToStep(7))" />
     }
+    else if (_currentStep == 9 && _verbale is not null)
+    {
+        <WizardStep9Foto OnSubmit="HandleStep9SubmitAsync"
+                         OnBack="@(() => GoToStep(8))" />
+    }
+    else if (_currentStep == 10 && _verbale is not null)
+    {
+        <WizardStep10Riepilogo Existing="_verbale"
+                               OnSubmit="HandleStep10SubmitAsync"
+                               OnBack="@(() => GoToStep(9))" />
+    }
     else
     {
         <MudPaper Class="pa-6" Elevation="1">
-            <MudAlert Severity="Severity.Info" Variant="Variant.Outlined">
-                Sezione @_currentStep — Wizard step in costruzione (B.8d).
+            <MudAlert Severity="Severity.Warning" Variant="Variant.Outlined">
+                Step @_currentStep non valido.
             </MudAlert>
             <MudButton Variant="Variant.Text" Class="mt-4"
                        StartIcon="@Icons.Material.Filled.ArrowBack"
-                       OnClick="@(() => GoToStep(_currentStep - 1))">
-                Indietro
+                       OnClick="@(() => GoToStep(1))">
+                Torna allo step 1
             </MudButton>
         </MudPaper>
     }
@@ -105,10 +116,11 @@
     private int _currentStep = 1;
     private bool _loading = true;
 
-    // B.8c estende ReachableSteps a 1-7. B.8d aggiunge step 8 (prescrizioni);
-    // step 9 (foto) e 10 (riepilogo) restano "in costruzione" finche' non
-    // chiusi nelle prossime sotto-fasi.
-    private static readonly IReadOnlyList<int> _reachableSteps = new[] { 1, 2, 3, 4, 5, 6, 7, 8 };
+    // B.8d completa: tutti gli step 1-10 raggiungibili. Step 9 e' un placeholder
+    // (upload foto reale in B.9); "Salva e firma" nello step 10 e' dummy
+    // (transizione FirmatoCse + Numero/Anno in B.9 / B.10).
+    private static readonly IReadOnlyList<int> _reachableSteps =
+        new[] { 1, 2, 3, 4, 5, 6, 7, 8, 9, 10 };
 
     protected override async Task OnParametersSetAsync()
     {
@@ -254,6 +266,20 @@
         await VerbaleManager.UpdatePrescrizioniAsync(_verbale.Id, items);
         Snackbar.Add("Prescrizioni salvate.", Severity.Success);
         Nav.NavigateTo($"/verbali/{_verbale.Id}/step/9");
+    }
+
+    // Step 9 e' placeholder: nessun salvataggio, solo navigazione.
+    private void HandleStep9SubmitAsync()
+    {
+        if (_verbale is null) return;
+        Nav.NavigateTo($"/verbali/{_verbale.Id}/step/10");
+    }
+
+    // Dummy in B.8d: la firma reale (FirmatoCse + Numero/Anno + audit) arriva
+    // in B.9 / B.10. Per ora avvisiamo l'utente che la fase di firma e' stub.
+    private void HandleStep10SubmitAsync()
+    {
+        Snackbar.Add("Firma del verbale non ancora attiva (in lavorazione, B.9 / B.10).", Severity.Info);
     }
 
     private void HandleCancelAsync() => Nav.NavigateTo("/");

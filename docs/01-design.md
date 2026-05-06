@@ -925,6 +925,63 @@ Durante la scrittura delle entità sono emerse tre raffinature di naming che int
 
 ---
 
+## Addendum 2026-05-06d — B.8d step 8-10 + auto-save su blur + fix APPL/CONF
+
+**Lavori chiusi**: step 8 prescrizioni (entità + repo + manager + UI), step 9 placeholder foto, step 10 riepilogo read-only, auto-save su blur sui campi free-text degli step 3-8, fix B.8c.1 sul "trap" APPL/CONF in step 4-5.
+
+**Backend — prescrizioni (step 8)**:
+- `IVerbaleRepository.GetPrescrizioniByVerbaleAsync(verbaleId)` — `SELECT … ORDER BY Ordine`.
+- `IVerbaleRepository.ReplacePrescrizioniAsync(verbaleId, rows)` — una transazione: `DELETE` di tutte le righe del verbale, `INSERT` Dapper IEnumerable della nuova lista, bump `UpdatedAt` su Verbale, commit/rollback.
+- `IVerbaleManager.GetPrescrizioniAsync` forward; `UpdatePrescrizioniAsync` normalizza prima del repo (scarta `Testo` whitespace, `Trim`, rinumera `Ordine` 1..N sulla posizione in lista, forza `VerbaleId`, genera `Id` per righe nuove con `Guid.Empty`).
+- Test: `ReplacePrescrizioni_then_GetByVerbale_returns_replaced_set_in_order` (3 righe → replace con 2 righe diverse → conta + ordine + `UpdatedAt` bumpato).
+
+**Decisione di design — Replace vs diff selettivo**: per liste piccole (< 20 prescrizioni per verbale) un delete-and-insert in transazione è più semplice e meno error-prone di un diff INSERT/UPDATE/DELETE. Una sola SQL roundtrip sequence (DELETE + INSERT bulk + UPDATE bump). Se in futuro emergono casi con liste enormi, si rifattora.
+
+**UI — step 8 (`WizardStep8Prescrizioni.razor`)**:
+- Lista dinamica: per ogni `PrescrizioneCse` un `MudPaper` outlined con numero d'ordine + `MudTextField` 3-righe (`MaxLength=2000`) + 3 `MudIconButton` (↑ / ↓ / 🗑).
+- Pulsante "Aggiungi prescrizione" in fondo. Empty-state con `MudAlert` informativo.
+- `@key="item.Id"` sul `MudPaper` per permettere a Blazor di tracciare le righe correttamente durante riordino.
+
+**UI — step 9 (`WizardStep9Foto.razor`)**: placeholder. `MudAlert` "in costruzione (B.9)" + nav buttons. Nessun backend coinvolto (sostituito dall'uploader in B.9).
+
+**UI — step 10 (`WizardStep10Riepilogo.razor`)**: read-only di tutti gli step, con risoluzione dei FK anagrafica.
+- Carica in parallelo via `Task.WhenAll`: 7 anagrafiche (Cantiere/Committente/Impresa/RL/CSP/CSE/DL) chiamando i rispettivi `XxxManager.GetAsync`, + 4 checklist via `IVerbaleManager.GetXxxAsync`, + prescrizioni.
+- Sezioni 1-9 in `MudPaper` outlined: anagrafica (grid), esito/meteo (grid), attività (solo `Selezionato==true`), documenti (solo `Applicabile==true`), apprestamenti (solo `Applicabile==true`, raggruppati per sottosezione 5.1-5.4), condizioni (solo `Conforme || NonConforme`), interferenze (radio + note), prescrizioni (lista numerata), foto (placeholder).
+- "Salva e firma" verde è **dummy in B.8d**: emette `OnSubmit` al wizard parent che mostra solo `Snackbar.Add("Firma in lavorazione (B.9 / B.10)", Info)`. La firma reale (transizione `FirmatoCse` + assegnazione `Numero`/`Anno` + audit `Firma`) arriva in B.9 / B.10.
+
+**Decisione di design — risoluzione FK in riepilogo**: lo step 10 chiama `Manager.GetAsync` separati per ogni FK invece di introdurre un `GetVerbaleSummaryAsync` joinato. Pragmatico: una manciata di query single-row per indice primario, non in loop, costo trascurabile. Se in futuro il riepilogo diventa hot-path o viene riusato fuori dal wizard, si introduce un DTO `VerbaleRiepilogo` con SQL joinato.
+
+**Auto-save su blur (RF-07)**:
+- Pattern condiviso: ogni step espone `_autoSaveStatus` (`AutoSaveStatus` enum: Idle / Saving / Saved / Error) + un `AutoSaveBadge` accanto al titolo (icona + testo: "Salvataggio…" / "Salvato ✓" / "Errore di salvataggio"; Idle = render vuoto).
+- Componente shared: `Components/Shared/AutoSaveBadge.razor` + enum `Components/Shared/AutoSaveStatus.cs`. `_Imports.razor` esteso con `@using ICMVerbali.Web.Components.Shared`.
+- Implementato negli step **3** (AltroDescrizione), **4** (Note + AltroDescrizione), **5** (Note), **6** (Note), **7** (InterferenzeNote), **8** (Testo). In step 8, anche Remove / MoveUp / MoveDown triggerano save (Add no — la riga vuota viene scartata dal manager).
+- Riusa i bulk update / Replace già esistenti: nessun nuovo metodo backend. Costo per blur: 1 transazione con N UPDATE (N ≤ ~30 per checklist).
+
+**Decisione di design — blur vs debounce**: scelto **blur**. Motivazioni:
+1. Più semplice: niente `Timer` per campo, niente `IAsyncDisposable` per fare flush al dispose.
+2. Niente race condition: con debounce 500ms, se l'utente digita e cambia step in 200ms perde i dati; il blur scatta sempre prima del cambio focus.
+3. UX prevedibile: l'utente vede il save quando esce dal campo (Tab / click altrove).
+4. In Blazor Server ogni keystroke è già un round-trip via SignalR; aggiungere debounce ritarda quel round-trip senza guadagno.
+5. Edge case "digito e chiudo tab senza blur" è raro; eventuale upgrade a debounce con flush su `beforeunload` se emerge dal testing.
+
+**Decisione di design — auto-save scope**: solo free-text (Note / AltroDescrizione / Testo prescrizioni / InterferenzeNote). NON checkbox/radio/picker. Motivazione: la perdita di un click è un "annoying redo", la perdita di 500 char di testo è una "perdita reale" — auto-save dove il guadagno è alto, non ovunque.
+
+**Fix B.8c.1 — APPL/CONF "trap"**: in step 4 (Documenti) e step 5 (Apprestamenti), prima la regola "CONF disabilitato finché non APPL" creava un trap: APPL=true → CONF=true → APPL=false (ora CONF è disabled ma resta `true` nel modello, l'utente non può sbloccarlo se non rispuntando APPL). Fix:
+- Helper `SetApplicabile(item, value)` chiamato dal `ValueChanged` di APPL: imposta `Applicabile = value` e, se `value == false`, forza `Conforme = false`.
+- `OnInitializedAsync` normalizza eventuali stati pregressi APPL=false ∧ CONF=true sui dati caricati dal DB.
+
+**Wizard top-level** (`VerbaleWizard.razor`):
+- `_reachableSteps` esteso a `[1..10]`.
+- Dispatch step 8 → `WizardStep8Prescrizioni`, step 9 → `WizardStep9Foto`, step 10 → `WizardStep10Riepilogo`.
+- `HandleStep8SubmitAsync` (chiama `UpdatePrescrizioniAsync` + naviga step 9), `HandleStep9SubmitAsync` (solo navigazione), `HandleStep10SubmitAsync` (snackbar dummy).
+- Branch `else` finale ora ammette solo step fuori range con redirect step 1 (i 10 step sono tutti coperti).
+
+**Test totali**: **17/17 in pass** (16 di B.8a-c + 1 nuovo: ReplacePrescrizioni). Step 9/10 e auto-save sono UI-only, riusano metodi backend già coperti.
+
+**Lavori esclusi** (vanno in B.9 / B.10): upload foto reale (`IFotoStorageService`, sez. 9 PDF), firma con transizione `FirmatoCse` + assegnazione `Numero`/`Anno` + audit `Firma`, soft-delete bozze, polish UX mobile.
+
+---
+
 ## Addendum 2026-05-06c — B.8c step 3-7 checkrow + interferenze in step 7
 
 **Decisione di scope ratificata**: le interferenze sono state spostate da step 2 a **step 7 dedicato**, coerentemente con il layout del PDF (sez. 7). Lo step 2 ora contiene solo esito complessivo + condizioni meteo + temperatura.
@@ -1043,6 +1100,6 @@ Spostato `@rendermode="@InteractiveServer"` da `MainLayout.razor` a `<Routes />`
 
 - **Sezioni 1-8, 10**: approvate implicitamente (nessuna contestazione).
 - **Sezione 9**: ✅ **22/22 voci approvate il 2026-05-05.**
-- **Sotto-fasi B**: B.1 / B.2 / B.3 completate. **B.4 completata 2026-05-05**: `ICMVerbaliDb` creato su `.\SQLEXPRESS`, 19 tabelle + 31 voci di seed applicate via `Invoke-Sqlcmd`. **B.5 completata 2026-05-05**: 10 Repository Dapper + 10 Manager + DI Scoped + 10 smoke test xUnit (10/10 pass). Fix Dapper-`DateOnly` documentato in Addendum. **B.6 completata 2026-05-05**: cookie auth, login/logout Minimal API, `IPasswordHasherService` (PBKDF2 via Identity), `DatabaseSeeder` `IHostedService` idempotente, policy `RequireAdmin`. **Zero NuGet aggiuntivi** (`PasswordHasher<TUser>` arriva da framework reference). Login flow verificato end-to-end via curl. **B.7 completata 2026-05-05**: anagrafiche CRUD UI (5 pagine `/anagrafica/*` con `MudDataGrid` + dialog Crea/Modifica), `AnagraficaPicker<T>` generic per il wizard B.8, NavMenu integrato, policy `RequireAdmin` su `/anagrafica/utenti`. Cambio password utente rimandato a B.7+. **B.8a completata 2026-05-06**: `IVerbaleRepository`/`Manager` estesi con creazione bozza completa transazionale (Verbale + 4 checklist pre-popolate + audit), Home riprogettata (due liste + FAB "+"), DTO `VerbaleListItem`, stub `/verbali/nuovo`. 12/12 test in pass. Fix render mode B.7 documentato in Addendum 2026-05-06. **B.8b completata 2026-05-06**: wizard skeleton (route segment `/verbali/{id}/step/{n}`), step 1 anagrafica con 7 `AnagraficaPicker`, step 2 meteo/esito/interferenze, `WizardStepper` con 10 tondini, `UpdateAnagraficaAsync` + `UpdateMeteoEsitoAsync` su Repository/Manager, righe Home cliccabili. Step 3-10 mostrano alert "in costruzione". 14/14 test in pass. **B.8c completata 2026-05-06**: spostate interferenze da step 2 a step 7 (coerenza con PDF), 5 nuovi step UI (3-7), 4 GET joinati + 4 UPDATE bulk transazionali su Repository, 4 DTO `VerbaleXxxItem` in `Models/`, split `UpdateMeteoEsito` in due metodi. ReachableSteps 1-7. Step 8-10 mostrano alert "in costruzione (B.8d)". 16/16 test in pass.
+- **Sotto-fasi B**: B.1 / B.2 / B.3 completate. **B.4 completata 2026-05-05**: `ICMVerbaliDb` creato su `.\SQLEXPRESS`, 19 tabelle + 31 voci di seed applicate via `Invoke-Sqlcmd`. **B.5 completata 2026-05-05**: 10 Repository Dapper + 10 Manager + DI Scoped + 10 smoke test xUnit (10/10 pass). Fix Dapper-`DateOnly` documentato in Addendum. **B.6 completata 2026-05-05**: cookie auth, login/logout Minimal API, `IPasswordHasherService` (PBKDF2 via Identity), `DatabaseSeeder` `IHostedService` idempotente, policy `RequireAdmin`. **Zero NuGet aggiuntivi** (`PasswordHasher<TUser>` arriva da framework reference). Login flow verificato end-to-end via curl. **B.7 completata 2026-05-05**: anagrafiche CRUD UI (5 pagine `/anagrafica/*` con `MudDataGrid` + dialog Crea/Modifica), `AnagraficaPicker<T>` generic per il wizard B.8, NavMenu integrato, policy `RequireAdmin` su `/anagrafica/utenti`. Cambio password utente rimandato a B.7+. **B.8a completata 2026-05-06**: `IVerbaleRepository`/`Manager` estesi con creazione bozza completa transazionale (Verbale + 4 checklist pre-popolate + audit), Home riprogettata (due liste + FAB "+"), DTO `VerbaleListItem`, stub `/verbali/nuovo`. 12/12 test in pass. Fix render mode B.7 documentato in Addendum 2026-05-06. **B.8b completata 2026-05-06**: wizard skeleton (route segment `/verbali/{id}/step/{n}`), step 1 anagrafica con 7 `AnagraficaPicker`, step 2 meteo/esito/interferenze, `WizardStepper` con 10 tondini, `UpdateAnagraficaAsync` + `UpdateMeteoEsitoAsync` su Repository/Manager, righe Home cliccabili. Step 3-10 mostrano alert "in costruzione". 14/14 test in pass. **B.8c completata 2026-05-06**: spostate interferenze da step 2 a step 7 (coerenza con PDF), 5 nuovi step UI (3-7), 4 GET joinati + 4 UPDATE bulk transazionali su Repository, 4 DTO `VerbaleXxxItem` in `Models/`, split `UpdateMeteoEsito` in due metodi. ReachableSteps 1-7. Step 8-10 mostrano alert "in costruzione (B.8d)". 16/16 test in pass. **B.8d completata 2026-05-06**: step 8 prescrizioni (entità + repo `Get`/`Replace` + manager + UI lista dinamica con add/remove/move), step 9 placeholder foto, step 10 riepilogo read-only con risoluzione FK anagrafica via Manager paralleli, auto-save su blur sui free-text degli step 3-8 (`AutoSaveBadge` shared, blur scelto vs debounce), fix B.8c.1 trap APPL/CONF in step 4-5. ReachableSteps 1-10. "Salva e firma" è dummy in attesa di B.9/B.10. 17/17 test in pass. **Fase B.8 chiusa per intero**.
 
 **Documento congelato come baseline di design.** Eventuali deviazioni emerse in implementazione devono aggiornare questo file in modo additivo (vedi CLAUDE.md "Documento vivo"). Si procede con la Fase B secondo il piano concordato in chat.

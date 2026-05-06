@@ -1,0 +1,329 @@
+@*
+    Step 10 del wizard: riepilogo read-only di tutti gli step (PDF sez. 1-9).
+    Carica in parallelo: anagrafiche (Cantiere/Committente/Impresa/4 Persone)
+    e i dati delle 4 checklist + prescrizioni dal manager Verbale.
+
+    "Salva e firma" e' un dummy in B.8d: emette OnSubmit al wizard parent che
+    mostra solo uno snackbar. La firma reale (transizione FirmatoCse +
+    assegnazione Numero/Anno) arrivera' nelle sotto-fasi B.9 / B.10.
+*@
+
+@using ICMVerbali.Web.Entities
+@using ICMVerbali.Web.Entities.Enums
+@using ICMVerbali.Web.Managers.Interfaces
+@using ICMVerbali.Web.Models
+
+@inject IVerbaleManager VerbaleManager
+@inject ICantiereManager CantiereManager
+@inject ICommittenteManager CommittenteManager
+@inject IImpresaAppaltatriceManager ImpresaManager
+@inject IPersonaManager PersonaManager
+
+<MudPaper Class="pa-6" Elevation="1">
+    <MudText Typo="Typo.h6" GutterBottom="true">Sezione 10 — Riepilogo del verbale</MudText>
+
+    @if (_loading)
+    {
+        <MudProgressLinear Indeterminate="true" Class="my-4" />
+    }
+    else
+    {
+        @* --- 1. Anagrafica --------------------------------------------------- *@
+        <MudPaper Class="pa-4 my-3" Outlined="true">
+            <MudText Typo="Typo.subtitle1" Class="mb-2"><strong>1. Anagrafica</strong></MudText>
+            <MudGrid Spacing="2">
+                <MudItem xs="12" sm="6"><strong>Data:</strong> @Existing.Data.ToString("dd/MM/yyyy")</MudItem>
+                <MudItem xs="12" sm="6"><strong>Cantiere:</strong> @(_cantiere?.Ubicazione ?? "—")</MudItem>
+                <MudItem xs="12" sm="6"><strong>Committente:</strong> @(_committente?.RagioneSociale ?? "—")</MudItem>
+                <MudItem xs="12" sm="6"><strong>Impresa appaltatrice:</strong> @(_impresa?.RagioneSociale ?? "—")</MudItem>
+                <MudItem xs="12" sm="6"><strong>RL:</strong> @(_rl?.Nominativo ?? "—")</MudItem>
+                <MudItem xs="12" sm="6"><strong>CSP:</strong> @(_csp?.Nominativo ?? "—")</MudItem>
+                <MudItem xs="12" sm="6"><strong>CSE:</strong> @(_cse?.Nominativo ?? "—")</MudItem>
+                <MudItem xs="12" sm="6"><strong>DL:</strong> @(_dl?.Nominativo ?? "—")</MudItem>
+            </MudGrid>
+        </MudPaper>
+
+        @* --- 2. Esito / meteo ----------------------------------------------- *@
+        <MudPaper Class="pa-4 my-3" Outlined="true">
+            <MudText Typo="Typo.subtitle1" Class="mb-2"><strong>2. Esito e meteo</strong></MudText>
+            <MudGrid Spacing="2">
+                <MudItem xs="12" sm="4"><strong>Esito:</strong> @LabelEsito(Existing.Esito)</MudItem>
+                <MudItem xs="12" sm="4"><strong>Meteo:</strong> @LabelMeteo(Existing.Meteo)</MudItem>
+                <MudItem xs="12" sm="4"><strong>Temperatura:</strong> @(Existing.TemperaturaCelsius?.ToString() ?? "—") °C</MudItem>
+            </MudGrid>
+        </MudPaper>
+
+        @* --- 3. Attività ---------------------------------------------------- *@
+        <MudPaper Class="pa-4 my-3" Outlined="true">
+            <MudText Typo="Typo.subtitle1" Class="mb-2"><strong>3. Attività in corso</strong></MudText>
+            @{
+                var attivitaSel = _attivita.Where(a => a.Selezionato).ToList();
+            }
+            @if (attivitaSel.Count == 0)
+            {
+                <MudText Typo="Typo.body2" Class="text-disabled">Nessuna attività selezionata.</MudText>
+            }
+            else
+            {
+                <MudList T="string" Dense="true">
+                    @foreach (var a in attivitaSel)
+                    {
+                        <MudListItem T="string" Icon="@Icons.Material.Filled.Check">
+                            @a.Etichetta@(IsAltro(a.Codice) && !string.IsNullOrWhiteSpace(a.AltroDescrizione) ? $" — {a.AltroDescrizione}" : "")
+                        </MudListItem>
+                    }
+                </MudList>
+            }
+        </MudPaper>
+
+        @* --- 4. Documenti --------------------------------------------------- *@
+        <MudPaper Class="pa-4 my-3" Outlined="true">
+            <MudText Typo="Typo.subtitle1" Class="mb-2"><strong>4. Documenti</strong></MudText>
+            @{
+                var docAppl = _documenti.Where(d => d.Applicabile).ToList();
+            }
+            @if (docAppl.Count == 0)
+            {
+                <MudText Typo="Typo.body2" Class="text-disabled">Nessun documento applicabile.</MudText>
+            }
+            else
+            {
+                <MudSimpleTable Dense="true" Hover="true">
+                    <thead>
+                        <tr><th>Documento</th><th>CONF</th><th>Note</th></tr>
+                    </thead>
+                    <tbody>
+                    @foreach (var d in docAppl)
+                    {
+                        <tr>
+                            <td>@d.Etichetta@(IsAltro(d.Codice) && !string.IsNullOrWhiteSpace(d.AltroDescrizione) ? $" — {d.AltroDescrizione}" : "")</td>
+                            <td>@(d.Conforme ? "Sì" : "No")</td>
+                            <td>@(d.Note ?? "")</td>
+                        </tr>
+                    }
+                    </tbody>
+                </MudSimpleTable>
+            }
+        </MudPaper>
+
+        @* --- 5. Apprestamenti ---------------------------------------------- *@
+        <MudPaper Class="pa-4 my-3" Outlined="true">
+            <MudText Typo="Typo.subtitle1" Class="mb-2"><strong>5. Apprestamenti</strong></MudText>
+            @{
+                var apprAppl = _apprestamenti.Where(a => a.Applicabile).ToList();
+            }
+            @if (apprAppl.Count == 0)
+            {
+                <MudText Typo="Typo.body2" Class="text-disabled">Nessun apprestamento applicabile.</MudText>
+            }
+            else
+            {
+                @foreach (var gruppo in apprAppl.GroupBy(a => a.Sottosezione).OrderBy(g => g.Key))
+                {
+                    <MudText Typo="Typo.body2" Class="mt-3 mb-1"><strong>@LabelSottosezione(gruppo.Key)</strong></MudText>
+                    <MudSimpleTable Dense="true" Hover="true">
+                        <thead>
+                            <tr><th>Apprestamento</th><th>CONF</th><th>Note</th></tr>
+                        </thead>
+                        <tbody>
+                        @foreach (var a in gruppo)
+                        {
+                            <tr>
+                                <td>@a.Etichetta</td>
+                                <td>@(a.Conforme ? "Sì" : "No")</td>
+                                <td>@(a.Note ?? "")</td>
+                            </tr>
+                        }
+                        </tbody>
+                    </MudSimpleTable>
+                }
+            }
+        </MudPaper>
+
+        @* --- 6. Condizioni ambientali --------------------------------------- *@
+        <MudPaper Class="pa-4 my-3" Outlined="true">
+            <MudText Typo="Typo.subtitle1" Class="mb-2"><strong>6. Condizioni ambientali</strong></MudText>
+            @{
+                var condValutate = _condizioni.Where(c => c.Conforme || c.NonConforme).ToList();
+            }
+            @if (condValutate.Count == 0)
+            {
+                <MudText Typo="Typo.body2" Class="text-disabled">Nessuna condizione ambientale valutata.</MudText>
+            }
+            else
+            {
+                <MudSimpleTable Dense="true" Hover="true">
+                    <thead>
+                        <tr><th>Condizione</th><th>Esito</th><th>Note</th></tr>
+                    </thead>
+                    <tbody>
+                    @foreach (var c in condValutate)
+                    {
+                        <tr>
+                            <td>@c.Etichetta</td>
+                            <td>@(c.Conforme ? "Conforme" : "Non conforme")</td>
+                            <td>@(c.Note ?? "")</td>
+                        </tr>
+                    }
+                    </tbody>
+                </MudSimpleTable>
+            }
+        </MudPaper>
+
+        @* --- 7. Interferenze ----------------------------------------------- *@
+        <MudPaper Class="pa-4 my-3" Outlined="true">
+            <MudText Typo="Typo.subtitle1" Class="mb-2"><strong>7. Interferenze</strong></MudText>
+            <MudText><strong>Gestione:</strong> @LabelInterferenze(Existing.Interferenze)</MudText>
+            @if (!string.IsNullOrWhiteSpace(Existing.InterferenzeNote))
+            {
+                <MudText Class="mt-2"><strong>Note:</strong> @Existing.InterferenzeNote</MudText>
+            }
+        </MudPaper>
+
+        @* --- 8. Prescrizioni ----------------------------------------------- *@
+        <MudPaper Class="pa-4 my-3" Outlined="true">
+            <MudText Typo="Typo.subtitle1" Class="mb-2"><strong>8. Prescrizioni e osservazioni</strong></MudText>
+            @if (_prescrizioni.Count == 0)
+            {
+                <MudText Typo="Typo.body2" Class="text-disabled">Nessuna prescrizione.</MudText>
+            }
+            else
+            {
+                <MudList T="string" Dense="true">
+                    @foreach (var p in _prescrizioni)
+                    {
+                        <MudListItem T="string">
+                            <strong>@p.Ordine.</strong> @p.Testo
+                        </MudListItem>
+                    }
+                </MudList>
+            }
+        </MudPaper>
+
+        @* --- 9. Foto -------------------------------------------------------- *@
+        <MudPaper Class="pa-4 my-3" Outlined="true">
+            <MudText Typo="Typo.subtitle1" Class="mb-2"><strong>9. Foto</strong></MudText>
+            <MudText Typo="Typo.body2" Class="text-disabled">Galleria foto disponibile in B.9.</MudText>
+        </MudPaper>
+
+        @* --- Azioni -------------------------------------------------------- *@
+        <MudStack Row="true" Justify="Justify.SpaceBetween" Class="mt-6">
+            <MudButton Variant="Variant.Text"
+                       StartIcon="@Icons.Material.Filled.ArrowBack"
+                       OnClick="OnBack">
+                Indietro
+            </MudButton>
+            <MudButton Variant="Variant.Filled" Color="Color.Success"
+                       Disabled="_signing"
+                       OnClick="HandleFirmaAsync"
+                       StartIcon="@Icons.Material.Filled.Verified">
+                Salva e firma
+            </MudButton>
+        </MudStack>
+    }
+</MudPaper>
+
+@code {
+    [Parameter, EditorRequired] public Verbale Existing { get; set; } = null!;
+    [Parameter] public EventCallback OnSubmit { get; set; }
+    [Parameter] public EventCallback OnBack { get; set; }
+
+    private bool _loading = true;
+    private bool _signing;
+
+    private Cantiere? _cantiere;
+    private Committente? _committente;
+    private ImpresaAppaltatrice? _impresa;
+    private Persona? _rl;
+    private Persona? _csp;
+    private Persona? _cse;
+    private Persona? _dl;
+
+    private IReadOnlyList<VerbaleAttivitaItem> _attivita = Array.Empty<VerbaleAttivitaItem>();
+    private IReadOnlyList<VerbaleDocumentoItem> _documenti = Array.Empty<VerbaleDocumentoItem>();
+    private IReadOnlyList<VerbaleApprestamentoItem> _apprestamenti = Array.Empty<VerbaleApprestamentoItem>();
+    private IReadOnlyList<VerbaleCondizioneAmbientaleItem> _condizioni = Array.Empty<VerbaleCondizioneAmbientaleItem>();
+    private IReadOnlyList<PrescrizioneCse> _prescrizioni = Array.Empty<PrescrizioneCse>();
+
+    protected override async Task OnInitializedAsync()
+    {
+        var cantiereTask = CantiereManager.GetAsync(Existing.CantiereId);
+        var committenteTask = CommittenteManager.GetAsync(Existing.CommittenteId);
+        var impresaTask = ImpresaManager.GetAsync(Existing.ImpresaAppaltatriceId);
+        var rlTask = PersonaManager.GetAsync(Existing.RlPersonaId);
+        var cspTask = PersonaManager.GetAsync(Existing.CspPersonaId);
+        var cseTask = PersonaManager.GetAsync(Existing.CsePersonaId);
+        var dlTask = PersonaManager.GetAsync(Existing.DlPersonaId);
+
+        var attivitaTask = VerbaleManager.GetAttivitaAsync(Existing.Id);
+        var documentiTask = VerbaleManager.GetDocumentiAsync(Existing.Id);
+        var apprestamentiTask = VerbaleManager.GetApprestamentiAsync(Existing.Id);
+        var condizioniTask = VerbaleManager.GetCondizioniAsync(Existing.Id);
+        var prescrizioniTask = VerbaleManager.GetPrescrizioniAsync(Existing.Id);
+
+        await Task.WhenAll(
+            cantiereTask, committenteTask, impresaTask,
+            rlTask, cspTask, cseTask, dlTask,
+            attivitaTask, documentiTask, apprestamentiTask, condizioniTask, prescrizioniTask);
+
+        _cantiere = cantiereTask.Result;
+        _committente = committenteTask.Result;
+        _impresa = impresaTask.Result;
+        _rl = rlTask.Result;
+        _csp = cspTask.Result;
+        _cse = cseTask.Result;
+        _dl = dlTask.Result;
+        _attivita = attivitaTask.Result;
+        _documenti = documentiTask.Result;
+        _apprestamenti = apprestamentiTask.Result;
+        _condizioni = condizioniTask.Result;
+        _prescrizioni = prescrizioniTask.Result;
+
+        _loading = false;
+    }
+
+    private async Task HandleFirmaAsync()
+    {
+        _signing = true;
+        await OnSubmit.InvokeAsync();
+        _signing = false;
+    }
+
+    private static bool IsAltro(string? codice)
+        => codice is not null && codice.EndsWith("_ALTRO", StringComparison.OrdinalIgnoreCase);
+
+    private static string LabelEsito(EsitoVerifica? e) => e switch
+    {
+        EsitoVerifica.Conforme => "Conforme",
+        EsitoVerifica.NcMinori => "Non conformità minori",
+        EsitoVerifica.NcGravi => "Non conformità gravi",
+        EsitoVerifica.Sospensione => "Sospensione attività",
+        _ => "—",
+    };
+
+    private static string LabelMeteo(CondizioneMeteo? m) => m switch
+    {
+        CondizioneMeteo.Sereno => "Sereno",
+        CondizioneMeteo.Nuvoloso => "Nuvoloso",
+        CondizioneMeteo.Pioggia => "Pioggia",
+        CondizioneMeteo.Neve => "Neve",
+        _ => "—",
+    };
+
+    private static string LabelInterferenze(GestioneInterferenze? g) => g switch
+    {
+        GestioneInterferenze.Nessuna => "Nessuna",
+        GestioneInterferenze.InterneAlCantiere => "Interne al cantiere",
+        GestioneInterferenze.ConAreeEsterne => "Con aree esterne",
+        _ => "—",
+    };
+
+    private static string LabelSottosezione(SottosezioneApprestamento s) => s switch
+    {
+        SottosezioneApprestamento.Organizzazione => "5.1 Organizzazione del cantiere",
+        SottosezioneApprestamento.CaduteDallAlto => "5.2 Cadute dall'alto",
+        SottosezioneApprestamento.EmergenzeEDpi => "5.3 Emergenze e DPI",
+        SottosezioneApprestamento.Impianti => "5.4 Impianti",
+        _ => s.ToString(),
+    };
+}

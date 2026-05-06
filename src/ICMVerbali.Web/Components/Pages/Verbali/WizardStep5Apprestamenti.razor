@@ -2,8 +2,10 @@
     Step 5 del wizard: apprestamenti di sicurezza (Sez. 5 PDF, art. 92 D.Lgs.
     81/2008). Le voci sono raggruppate nelle 4 sottosezioni 5.1-5.4 indicate
     sull'enum SottosezioneApprestamento. Stesso schema di step 4 (APPL/CONF/Note).
+    Auto-save su blur del campo Note.
 *@
 
+@using ICMVerbali.Web.Entities
 @using ICMVerbali.Web.Entities.Enums
 @using ICMVerbali.Web.Managers.Interfaces
 @using ICMVerbali.Web.Models
@@ -11,7 +13,10 @@
 @inject IVerbaleManager VerbaleManager
 
 <MudPaper Class="pa-6" Elevation="1">
-    <MudText Typo="Typo.h6" GutterBottom="true">Sezione 5 — Apprestamenti di sicurezza</MudText>
+    <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween" Class="mb-2">
+        <MudText Typo="Typo.h6">Sezione 5 — Apprestamenti di sicurezza</MudText>
+        <AutoSaveBadge Status="_autoSaveStatus" />
+    </MudStack>
 
     @if (_loading)
     {
@@ -51,6 +56,7 @@
                         <td>
                             <MudTextField T="string" Value="captured.Note"
                                           ValueChanged="@((string? n) => captured.Note = n)"
+                                          OnBlur="@(_ => AutoSaveAsync())"
                                           Variant="Variant.Outlined"
                                           Margin="Margin.Dense" />
                         </td>
@@ -83,6 +89,7 @@
 
     private bool _loading = true;
     private bool _saving;
+    private AutoSaveStatus _autoSaveStatus = AutoSaveStatus.Idle;
     private List<VerbaleApprestamentoItem> _items = new();
 
     protected override async Task OnInitializedAsync()
@@ -122,5 +129,28 @@
         _saving = true;
         await OnSubmit.InvokeAsync(_items);
         _saving = false;
+    }
+
+    private async Task AutoSaveAsync()
+    {
+        _autoSaveStatus = AutoSaveStatus.Saving;
+        StateHasChanged();
+        try
+        {
+            var entities = _items.Select(i => new VerbaleApprestamento
+            {
+                VerbaleId = VerbaleId,
+                CatalogoTipoApprestamentoId = i.CatalogoTipoApprestamentoId,
+                Applicabile = i.Applicabile,
+                Conforme = i.Conforme,
+                Note = i.Note,
+            });
+            await VerbaleManager.UpdateApprestamentiAsync(VerbaleId, entities);
+            _autoSaveStatus = AutoSaveStatus.Saved;
+        }
+        catch
+        {
+            _autoSaveStatus = AutoSaveStatus.Error;
+        }
     }
 }

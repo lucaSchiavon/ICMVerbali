@@ -2,13 +2,20 @@
     Step 7 del wizard: gestione interferenze (Sez. 7 PDF). Era nello step 2
     in B.8b ma il PDF la mette nella sua sezione dedicata, quindi qui.
     Default Nessuna, le note sono libere e attive solo se != Nessuna.
+    Auto-save su blur del campo Note.
 *@
 
 @using ICMVerbali.Web.Entities
 @using ICMVerbali.Web.Entities.Enums
+@using ICMVerbali.Web.Managers.Interfaces
+
+@inject IVerbaleManager VerbaleManager
 
 <MudPaper Class="pa-6" Elevation="1">
-    <MudText Typo="Typo.h6" GutterBottom="true">Sezione 7 — Gestione interferenze</MudText>
+    <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween" Class="mb-2">
+        <MudText Typo="Typo.h6">Sezione 7 — Gestione interferenze</MudText>
+        <AutoSaveBadge Status="_autoSaveStatus" />
+    </MudStack>
 
     <MudRadioGroup T="GestioneInterferenze?" Value="_interferenze"
                    ValueChanged="@((GestioneInterferenze? g) => _interferenze = g)">
@@ -25,6 +32,7 @@
 
     <MudTextField T="string" Label="Note interferenze" Value="_note"
                   ValueChanged="@((string? n) => _note = n)"
+                  OnBlur="@(_ => AutoSaveAsync())"
                   Lines="4" Class="mt-4"
                   Disabled="@(_interferenze is null or GestioneInterferenze.Nessuna)" />
 
@@ -49,6 +57,7 @@
     [Parameter] public EventCallback OnBack { get; set; }
 
     private bool _saving;
+    private AutoSaveStatus _autoSaveStatus = AutoSaveStatus.Idle;
     private GestioneInterferenze? _interferenze = GestioneInterferenze.Nessuna;
     private string? _note;
 
@@ -66,6 +75,22 @@
             _interferenze is null or GestioneInterferenze.Nessuna ? null : _note);
         await OnSubmit.InvokeAsync(submission);
         _saving = false;
+    }
+
+    private async Task AutoSaveAsync()
+    {
+        _autoSaveStatus = AutoSaveStatus.Saving;
+        StateHasChanged();
+        try
+        {
+            var note = _interferenze is null or GestioneInterferenze.Nessuna ? null : _note;
+            await VerbaleManager.UpdateInterferenzeAsync(Existing.Id, _interferenze, note);
+            _autoSaveStatus = AutoSaveStatus.Saved;
+        }
+        catch
+        {
+            _autoSaveStatus = AutoSaveStatus.Error;
+        }
     }
 
     public sealed record Step7Submission(

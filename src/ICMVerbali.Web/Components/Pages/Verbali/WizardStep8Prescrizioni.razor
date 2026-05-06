@@ -3,6 +3,8 @@
     Lista dinamica di righe: per ognuna un MudTextField multilinea + bottoni
     sposta-su / sposta-giu / rimuovi. Pulsante "Aggiungi prescrizione" in fondo.
     Ordine viene rinumerato dal manager 1..N sulla base della posizione in lista.
+    Auto-save su blur del testo, su rimozione riga, e su sposta su/giu.
+    Add NON triggera save (riga vuota viene comunque scartata dal manager).
 *@
 
 @using ICMVerbali.Web.Entities
@@ -11,7 +13,10 @@
 @inject IVerbaleManager VerbaleManager
 
 <MudPaper Class="pa-6" Elevation="1">
-    <MudText Typo="Typo.h6" GutterBottom="true">Sezione 8 — Prescrizioni e osservazioni del CSE</MudText>
+    <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween" Class="mb-2">
+        <MudText Typo="Typo.h6">Sezione 8 — Prescrizioni e osservazioni del CSE</MudText>
+        <AutoSaveBadge Status="_autoSaveStatus" />
+    </MudStack>
 
     @if (_loading)
     {
@@ -38,6 +43,7 @@
                     <MudTextField T="string"
                                   Value="item.Testo"
                                   ValueChanged="@((string? t) => item.Testo = t ?? string.Empty)"
+                                  OnBlur="@(_ => AutoSaveAsync())"
                                   Lines="3"
                                   MaxLength="2000"
                                   Variant="Variant.Outlined"
@@ -48,17 +54,17 @@
                         <MudIconButton Icon="@Icons.Material.Filled.ArrowUpward"
                                        Size="Size.Small"
                                        Disabled="@(idx == 0)"
-                                       OnClick="@(() => MoveUp(idx))"
+                                       OnClick="@(() => MoveUpAsync(idx))"
                                        title="Sposta su" />
                         <MudIconButton Icon="@Icons.Material.Filled.ArrowDownward"
                                        Size="Size.Small"
                                        Disabled="@(idx == _items.Count - 1)"
-                                       OnClick="@(() => MoveDown(idx))"
+                                       OnClick="@(() => MoveDownAsync(idx))"
                                        title="Sposta giu" />
                         <MudIconButton Icon="@Icons.Material.Filled.Delete"
                                        Size="Size.Small"
                                        Color="Color.Error"
-                                       OnClick="@(() => Remove(idx))"
+                                       OnClick="@(() => RemoveAsync(idx))"
                                        title="Rimuovi" />
                     </MudStack>
                 </MudStack>
@@ -96,6 +102,7 @@
 
     private bool _loading = true;
     private bool _saving;
+    private AutoSaveStatus _autoSaveStatus = AutoSaveStatus.Idle;
     private List<PrescrizioneCse> _items = new();
 
     protected override async Task OnInitializedAsync()
@@ -116,21 +123,24 @@
         });
     }
 
-    private void Remove(int idx)
+    private async Task RemoveAsync(int idx)
     {
         _items.RemoveAt(idx);
+        await AutoSaveAsync();
     }
 
-    private void MoveUp(int idx)
+    private async Task MoveUpAsync(int idx)
     {
         if (idx <= 0 || idx >= _items.Count) return;
         (_items[idx - 1], _items[idx]) = (_items[idx], _items[idx - 1]);
+        await AutoSaveAsync();
     }
 
-    private void MoveDown(int idx)
+    private async Task MoveDownAsync(int idx)
     {
         if (idx < 0 || idx >= _items.Count - 1) return;
         (_items[idx + 1], _items[idx]) = (_items[idx], _items[idx + 1]);
+        await AutoSaveAsync();
     }
 
     private async Task HandleSubmitAsync()
@@ -138,5 +148,20 @@
         _saving = true;
         await OnSubmit.InvokeAsync(_items);
         _saving = false;
+    }
+
+    private async Task AutoSaveAsync()
+    {
+        _autoSaveStatus = AutoSaveStatus.Saving;
+        StateHasChanged();
+        try
+        {
+            await VerbaleManager.UpdatePrescrizioniAsync(VerbaleId, _items);
+            _autoSaveStatus = AutoSaveStatus.Saved;
+        }
+        catch
+        {
+            _autoSaveStatus = AutoSaveStatus.Error;
+        }
     }
 }

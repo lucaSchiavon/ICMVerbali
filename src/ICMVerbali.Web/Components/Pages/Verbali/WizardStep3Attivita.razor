@@ -2,16 +2,20 @@
     Step 3 del wizard: 16 voci di "attività in corso" (Sez. 3 PDF). Le righe
     sono pre-popolate alla creazione bozza (B.8a) con Selezionato=false. La UI
     bind direttamente i flag di VerbaleAttivitaItem (campi mutable get;set).
-    Save bulk al click "Avanti".
+    Save bulk al click "Avanti"; auto-save su blur del campo AltroDescrizione.
 *@
 
+@using ICMVerbali.Web.Entities
 @using ICMVerbali.Web.Managers.Interfaces
 @using ICMVerbali.Web.Models
 
 @inject IVerbaleManager VerbaleManager
 
 <MudPaper Class="pa-6" Elevation="1">
-    <MudText Typo="Typo.h6" GutterBottom="true">Sezione 3 — Attività in corso</MudText>
+    <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween" Class="mb-2">
+        <MudText Typo="Typo.h6">Sezione 3 — Attività in corso</MudText>
+        <AutoSaveBadge Status="_autoSaveStatus" />
+    </MudStack>
 
     @if (_loading)
     {
@@ -32,6 +36,7 @@
                         {
                             <MudTextField T="string" Value="captured.AltroDescrizione"
                                           ValueChanged="@((string? d) => captured.AltroDescrizione = d)"
+                                          OnBlur="@(_ => AutoSaveAsync())"
                                           Placeholder="Specifica la voce 'Altro'..."
                                           Variant="Variant.Outlined"
                                           Margin="Margin.Dense"
@@ -65,6 +70,7 @@
 
     private bool _loading = true;
     private bool _saving;
+    private AutoSaveStatus _autoSaveStatus = AutoSaveStatus.Idle;
     private List<VerbaleAttivitaItem> _items = new();
 
     protected override async Task OnInitializedAsync()
@@ -82,5 +88,27 @@
         _saving = true;
         await OnSubmit.InvokeAsync(_items);
         _saving = false;
+    }
+
+    private async Task AutoSaveAsync()
+    {
+        _autoSaveStatus = AutoSaveStatus.Saving;
+        StateHasChanged();
+        try
+        {
+            var entities = _items.Select(i => new VerbaleAttivita
+            {
+                VerbaleId = VerbaleId,
+                CatalogoTipoAttivitaId = i.CatalogoTipoAttivitaId,
+                Selezionato = i.Selezionato,
+                AltroDescrizione = i.AltroDescrizione,
+            });
+            await VerbaleManager.UpdateAttivitaAsync(VerbaleId, entities);
+            _autoSaveStatus = AutoSaveStatus.Saved;
+        }
+        catch
+        {
+            _autoSaveStatus = AutoSaveStatus.Error;
+        }
     }
 }

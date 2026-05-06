@@ -1,0 +1,30 @@
+@*
+    Badge di stato auto-save: piccolo indicatore inline da affiancare al titolo
+    dello step. Idle = invisibile (Pre-renderizza nulla per non occupare spazio).
+*@
+
+@if (Status == AutoSaveStatus.Saving)
+{
+    <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="1" Class="mud-text-disabled">
+        <MudProgressCircular Size="Size.Small" Indeterminate="true" />
+        <MudText Typo="Typo.caption">Salvataggio…</MudText>
+    </MudStack>
+}
+else if (Status == AutoSaveStatus.Saved)
+{
+    <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="1" Style="color: var(--mud-palette-success);">
+        <MudIcon Icon="@Icons.Material.Filled.CheckCircle" Size="Size.Small" />
+        <MudText Typo="Typo.caption">Salvato</MudText>
+    </MudStack>
+}
+else if (Status == AutoSaveStatus.Error)
+{
+    <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="1" Style="color: var(--mud-palette-error);">
+        <MudIcon Icon="@Icons.Material.Filled.ErrorOutline" Size="Size.Small" />
+        <MudText Typo="Typo.caption">Errore di salvataggio</MudText>
+    </MudStack>
+}
+
+@code {
+    [Parameter] public AutoSaveStatus Status { get; set; } = AutoSaveStatus.Idle;
+}

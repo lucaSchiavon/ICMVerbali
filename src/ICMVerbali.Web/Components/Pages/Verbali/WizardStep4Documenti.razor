@@ -2,15 +2,20 @@
     Step 4 del wizard: documenti verificati (Sez. 4 PDF, art. 90 D.Lgs. 81/2008).
     Per ogni voce: APPL (applicabile) + CONF (conforme) + Note.
     Voce "Altro" (codice DOC_ALTRO) attiva l'input AltroDescrizione quando APPL.
+    Auto-save su blur dei campi free-text (Note, AltroDescrizione).
 *@
 
+@using ICMVerbali.Web.Entities
 @using ICMVerbali.Web.Managers.Interfaces
 @using ICMVerbali.Web.Models
 
 @inject IVerbaleManager VerbaleManager
 
 <MudPaper Class="pa-6" Elevation="1">
-    <MudText Typo="Typo.h6" GutterBottom="true">Sezione 4 — Documenti</MudText>
+    <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween" Class="mb-2">
+        <MudText Typo="Typo.h6">Sezione 4 — Documenti</MudText>
+        <AutoSaveBadge Status="_autoSaveStatus" />
+    </MudStack>
 
     @if (_loading)
     {
@@ -38,6 +43,7 @@
                         {
                             <MudTextField T="string" Value="captured.AltroDescrizione"
                                           ValueChanged="@((string? d) => captured.AltroDescrizione = d)"
+                                          OnBlur="@(_ => AutoSaveAsync())"
                                           Placeholder="Specifica..."
                                           Variant="Variant.Outlined"
                                           Margin="Margin.Dense"
@@ -56,6 +62,7 @@
                     <td>
                         <MudTextField T="string" Value="captured.Note"
                                       ValueChanged="@((string? n) => captured.Note = n)"
+                                      OnBlur="@(_ => AutoSaveAsync())"
                                       Variant="Variant.Outlined"
                                       Margin="Margin.Dense" />
                     </td>
@@ -87,6 +94,7 @@
 
     private bool _loading = true;
     private bool _saving;
+    private AutoSaveStatus _autoSaveStatus = AutoSaveStatus.Idle;
     private List<VerbaleDocumentoItem> _items = new();
 
     protected override async Task OnInitializedAsync()
@@ -120,5 +128,29 @@
         _saving = true;
         await OnSubmit.InvokeAsync(_items);
         _saving = false;
+    }
+
+    private async Task AutoSaveAsync()
+    {
+        _autoSaveStatus = AutoSaveStatus.Saving;
+        StateHasChanged();
+        try
+        {
+            var entities = _items.Select(i => new VerbaleDocumento
+            {
+                VerbaleId = VerbaleId,
+                CatalogoTipoDocumentoId = i.CatalogoTipoDocumentoId,
+                Applicabile = i.Applicabile,
+                Conforme = i.Conforme,
+                Note = i.Note,
+                AltroDescrizione = i.AltroDescrizione,
+            });
+            await VerbaleManager.UpdateDocumentiAsync(VerbaleId, entities);
+            _autoSaveStatus = AutoSaveStatus.Saved;
+        }
+        catch
+        {
+            _autoSaveStatus = AutoSaveStatus.Error;
+        }
     }
 }
