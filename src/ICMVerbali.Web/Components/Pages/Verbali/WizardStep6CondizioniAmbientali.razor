@@ -1,0 +1,107 @@
+@*
+    Step 6 del wizard: condizioni ambientali (Sez. 6 PDF: illuminazione,
+    polveri, rumore, pulizia strade). A differenza degli step 4-5, qui le
+    colonne sono CONF / NC (non APPL / CONF). Vincolo logico: CONF e NC sono
+    mutuamente esclusivi (vedi CK_VerbaleCondAmb_ConformeXorNonConforme in DB).
+    La UI applica la regola al toggle.
+*@
+
+@using ICMVerbali.Web.Managers.Interfaces
+@using ICMVerbali.Web.Models
+
+@inject IVerbaleManager VerbaleManager
+
+<MudPaper Class="pa-6" Elevation="1">
+    <MudText Typo="Typo.h6" GutterBottom="true">Sezione 6 — Condizioni ambientali</MudText>
+
+    @if (_loading)
+    {
+        <MudProgressLinear Indeterminate="true" Class="my-4" />
+    }
+    else
+    {
+        <MudSimpleTable Dense="true" Hover="true" Style="overflow-x: auto;">
+            <thead>
+                <tr>
+                    <th style="width: 50%;">Condizione</th>
+                    <th style="width: 8%;">CONF</th>
+                    <th style="width: 8%;">NC</th>
+                    <th style="width: 34%;">Note</th>
+                </tr>
+            </thead>
+            <tbody>
+            @foreach (var item in _items)
+            {
+                var captured = item;
+                <tr>
+                    <td>@captured.Etichetta</td>
+                    <td>
+                        <MudCheckBox T="bool" Value="captured.Conforme"
+                                     ValueChanged="@((bool v) => SetConforme(captured, v))" />
+                    </td>
+                    <td>
+                        <MudCheckBox T="bool" Value="captured.NonConforme"
+                                     ValueChanged="@((bool v) => SetNonConforme(captured, v))" />
+                    </td>
+                    <td>
+                        <MudTextField T="string" Value="captured.Note"
+                                      ValueChanged="@((string? n) => captured.Note = n)"
+                                      Variant="Variant.Outlined"
+                                      Margin="Margin.Dense" />
+                    </td>
+                </tr>
+            }
+            </tbody>
+        </MudSimpleTable>
+
+        <MudStack Row="true" Justify="Justify.SpaceBetween" Class="mt-6">
+            <MudButton Variant="Variant.Text"
+                       StartIcon="@Icons.Material.Filled.ArrowBack"
+                       OnClick="OnBack">
+                Indietro
+            </MudButton>
+            <MudButton Variant="Variant.Filled" Color="Color.Primary"
+                       Disabled="_saving"
+                       OnClick="HandleSubmitAsync"
+                       EndIcon="@Icons.Material.Filled.ArrowForward">
+                Salva e prosegui
+            </MudButton>
+        </MudStack>
+    }
+</MudPaper>
+
+@code {
+    [Parameter, EditorRequired] public Guid VerbaleId { get; set; }
+    [Parameter] public EventCallback<IReadOnlyList<VerbaleCondizioneAmbientaleItem>> OnSubmit { get; set; }
+    [Parameter] public EventCallback OnBack { get; set; }
+
+    private bool _loading = true;
+    private bool _saving;
+    private List<VerbaleCondizioneAmbientaleItem> _items = new();
+
+    protected override async Task OnInitializedAsync()
+    {
+        var rows = await VerbaleManager.GetCondizioniAsync(VerbaleId);
+        _items = rows.ToList();
+        _loading = false;
+    }
+
+    private static void SetConforme(VerbaleCondizioneAmbientaleItem item, bool value)
+    {
+        item.Conforme = value;
+        if (value) item.NonConforme = false;
+    }
+
+    private static void SetNonConforme(VerbaleCondizioneAmbientaleItem item, bool value)
+    {
+        item.NonConforme = value;
+        if (value) item.Conforme = false;
+    }
+
+    private async Task HandleSubmitAsync()
+    {
+        _saving = true;
+        await OnSubmit.InvokeAsync(_items);
+        _saving = false;
+    }
+}

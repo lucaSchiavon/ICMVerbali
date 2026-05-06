@@ -1,0 +1,108 @@
+@*
+    Step 4 del wizard: documenti verificati (Sez. 4 PDF, art. 90 D.Lgs. 81/2008).
+    Per ogni voce: APPL (applicabile) + CONF (conforme) + Note.
+    Voce "Altro" (codice DOC_ALTRO) attiva l'input AltroDescrizione quando APPL.
+*@
+
+@using ICMVerbali.Web.Managers.Interfaces
+@using ICMVerbali.Web.Models
+
+@inject IVerbaleManager VerbaleManager
+
+<MudPaper Class="pa-6" Elevation="1">
+    <MudText Typo="Typo.h6" GutterBottom="true">Sezione 4 — Documenti</MudText>
+
+    @if (_loading)
+    {
+        <MudProgressLinear Indeterminate="true" Class="my-4" />
+    }
+    else
+    {
+        <MudSimpleTable Dense="true" Hover="true" Style="overflow-x: auto;">
+            <thead>
+                <tr>
+                    <th style="width: 50%;">Documento</th>
+                    <th style="width: 8%;">APPL</th>
+                    <th style="width: 8%;">CONF</th>
+                    <th style="width: 34%;">Note</th>
+                </tr>
+            </thead>
+            <tbody>
+            @foreach (var item in _items)
+            {
+                var captured = item;
+                <tr>
+                    <td>
+                        <MudText>@captured.Etichetta</MudText>
+                        @if (IsAltro(captured) && captured.Applicabile)
+                        {
+                            <MudTextField T="string" Value="captured.AltroDescrizione"
+                                          ValueChanged="@((string? d) => captured.AltroDescrizione = d)"
+                                          Placeholder="Specifica..."
+                                          Variant="Variant.Outlined"
+                                          Margin="Margin.Dense"
+                                          Class="mt-1" />
+                        }
+                    </td>
+                    <td>
+                        <MudCheckBox T="bool" Value="captured.Applicabile"
+                                     ValueChanged="@((bool v) => captured.Applicabile = v)" />
+                    </td>
+                    <td>
+                        <MudCheckBox T="bool" Value="captured.Conforme"
+                                     ValueChanged="@((bool v) => captured.Conforme = v)"
+                                     Disabled="@(!captured.Applicabile)" />
+                    </td>
+                    <td>
+                        <MudTextField T="string" Value="captured.Note"
+                                      ValueChanged="@((string? n) => captured.Note = n)"
+                                      Variant="Variant.Outlined"
+                                      Margin="Margin.Dense" />
+                    </td>
+                </tr>
+            }
+            </tbody>
+        </MudSimpleTable>
+
+        <MudStack Row="true" Justify="Justify.SpaceBetween" Class="mt-6">
+            <MudButton Variant="Variant.Text"
+                       StartIcon="@Icons.Material.Filled.ArrowBack"
+                       OnClick="OnBack">
+                Indietro
+            </MudButton>
+            <MudButton Variant="Variant.Filled" Color="Color.Primary"
+                       Disabled="_saving"
+                       OnClick="HandleSubmitAsync"
+                       EndIcon="@Icons.Material.Filled.ArrowForward">
+                Salva e prosegui
+            </MudButton>
+        </MudStack>
+    }
+</MudPaper>
+
+@code {
+    [Parameter, EditorRequired] public Guid VerbaleId { get; set; }
+    [Parameter] public EventCallback<IReadOnlyList<VerbaleDocumentoItem>> OnSubmit { get; set; }
+    [Parameter] public EventCallback OnBack { get; set; }
+
+    private bool _loading = true;
+    private bool _saving;
+    private List<VerbaleDocumentoItem> _items = new();
+
+    protected override async Task OnInitializedAsync()
+    {
+        var rows = await VerbaleManager.GetDocumentiAsync(VerbaleId);
+        _items = rows.ToList();
+        _loading = false;
+    }
+
+    private static bool IsAltro(VerbaleDocumentoItem item)
+        => item.Codice.EndsWith("_ALTRO", StringComparison.OrdinalIgnoreCase);
+
+    private async Task HandleSubmitAsync()
+    {
+        _saving = true;
+        await OnSubmit.InvokeAsync(_items);
+        _saving = false;
+    }
+}

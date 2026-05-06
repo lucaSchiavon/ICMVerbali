@@ -37,17 +37,52 @@ public interface IVerbaleRepository
         Guid dlPersonaId,
         CancellationToken ct = default);
 
-    // Aggiorna i campi compilabili dello step 2 (meteo) e sezione 7 (interferenze).
-    // UpdatedAt rifissato.
+    // Step 2 wizard: esito complessivo + condizioni meteo + temperatura.
+    // I campi sono nullable in DB per ammettere bozze parziali.
     Task UpdateMeteoEsitoAsync(
         Guid id,
         Entities.Enums.EsitoVerifica? esito,
         Entities.Enums.CondizioneMeteo? meteo,
         int? temperaturaCelsius,
+        CancellationToken ct = default);
+
+    // Step 7 wizard: gestione interferenze (Sez. 7 PDF) + note libere.
+    Task UpdateInterferenzeAsync(
+        Guid id,
         Entities.Enums.GestioneInterferenze? interferenze,
         string? interferenzeNote,
         CancellationToken ct = default);
 
+    // -------- checklist (step 3-6 wizard) --------------------------------
+    // Letture joinate con il catalogo: includono le righe anche se la voce di
+    // catalogo e' stata disattivata dopo la creazione (snapshot del verbale).
+    Task<IReadOnlyList<VerbaleAttivitaItem>>
+        GetAttivitaByVerbaleAsync(Guid verbaleId, CancellationToken ct = default);
+
+    Task<IReadOnlyList<VerbaleDocumentoItem>>
+        GetDocumentiByVerbaleAsync(Guid verbaleId, CancellationToken ct = default);
+
+    Task<IReadOnlyList<VerbaleApprestamentoItem>>
+        GetApprestamentiByVerbaleAsync(Guid verbaleId, CancellationToken ct = default);
+
+    Task<IReadOnlyList<VerbaleCondizioneAmbientaleItem>>
+        GetCondizioniByVerbaleAsync(Guid verbaleId, CancellationToken ct = default);
+
+    // Aggiornamenti bulk: una transazione per checklist, UPDATE multipla.
+    // Bumpa UpdatedAt sul Verbale dentro la stessa transazione.
+    Task UpdateAttivitaBulkAsync(
+        Guid verbaleId, IEnumerable<VerbaleAttivita> rows, CancellationToken ct = default);
+
+    Task UpdateDocumentiBulkAsync(
+        Guid verbaleId, IEnumerable<VerbaleDocumento> rows, CancellationToken ct = default);
+
+    Task UpdateApprestamentiBulkAsync(
+        Guid verbaleId, IEnumerable<VerbaleApprestamento> rows, CancellationToken ct = default);
+
+    Task UpdateCondizioniBulkAsync(
+        Guid verbaleId, IEnumerable<VerbaleCondizioneAmbientale> rows, CancellationToken ct = default);
+
+    // -------- liste Home -------------------------------------------------
     // Verbali del giorno (esclude bozze e soft-deleted), ordinati per UpdatedAt DESC.
     Task<IReadOnlyList<VerbaleListItem>> GetByDataAsync(DateOnly data, CancellationToken ct = default);
 

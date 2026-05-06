@@ -925,6 +925,45 @@ Durante la scrittura delle entità sono emerse tre raffinature di naming che int
 
 ---
 
+## Addendum 2026-05-06c — B.8c step 3-7 checkrow + interferenze in step 7
+
+**Decisione di scope ratificata**: le interferenze sono state spostate da step 2 a **step 7 dedicato**, coerentemente con il layout del PDF (sez. 7). Lo step 2 ora contiene solo esito complessivo + condizioni meteo + temperatura.
+
+**Backend — split `UpdateMeteoEsito`**:
+- `IVerbaleRepository.UpdateMeteoEsitoAsync` ridotto a `(esito, meteo, temperatura)`.
+- Nuovo `IVerbaleRepository.UpdateInterferenzeAsync(id, interferenze, note)` separato.
+- Manager forwarda in modo speculare.
+- Test esistente sull'UpdateMeteoEsito ridotto, nuovo test su UpdateInterferenze.
+
+**Backend — checklist (step 3-6)**:
+- 4 nuovi metodi GET joinati: `GetAttivitaByVerbaleAsync`, `GetDocumentiByVerbaleAsync`, `GetApprestamentiByVerbaleAsync`, `GetCondizioniByVerbaleAsync`. JOIN con il catalogo per popolare `Codice`/`Etichetta`/`Ordine` (più `Sottosezione` per gli apprestamenti). **NO filtro su `IsAttivo`**: una voce di catalogo disattivata dopo la creazione del verbale resta visibile sul verbale (snapshot).
+- 4 nuovi metodi UPDATE bulk: `UpdateAttivitaBulkAsync` ecc. Pattern comune `RunBulkUpdateAsync<T>(verbaleId, rows, sql)` che apre una transazione, esegue UPDATE multipla via Dapper IEnumerable, fa bump di `UpdatedAt` sul Verbale, commit/rollback.
+- Test su 1 sample: `UpdateAttivitaBulk_then_GetByVerbale_returns_joined_updated_state`. Le altre 3 checklist sono identiche per schema, copertura inferita.
+
+**DTO `Models/`** — 4 nuovi DTO per i checkrow: `VerbaleAttivitaItem`, `VerbaleDocumentoItem`, `VerbaleApprestamentoItem` (con `SottosezioneApprestamento`), `VerbaleCondizioneAmbientaleItem`. Pattern: `init` per i campi catalogo (immutabili lato UI), `set` per i campi del verbale (mutati dai checkbox).
+
+**UI — 5 nuovi step**:
+- `WizardStep3Attivita` — `MudList<MudListItem>` con 1 `MudCheckBox` per voce. Per la voce "Altro" (codice termina con `_ALTRO`) un `MudTextField` `AltroDescrizione` appare condizionalmente quando selezionato.
+- `WizardStep4Documenti` — `MudSimpleTable` 4 colonne: Etichetta / APPL / CONF / Note. CONF disabilitato finché non APPL. Pattern "Altro" come step 3.
+- `WizardStep5Apprestamenti` — come step 4 ma raggruppato per `SottosezioneApprestamento` (4 sottosezioni 5.1-5.4). Una `MudSimpleTable` per gruppo con header "5.x …".
+- `WizardStep6CondizioniAmbientali` — `MudSimpleTable` 4 colonne: Etichetta / CONF / NC / Note. CONF e NC mutuamente esclusivi (logica UX: spuntando uno si auto-deseleziona l'altro; il vincolo `CK_VerbaleCondAmb_ConformeXorNonConforme` blinda il DB).
+- `WizardStep7Interferenze` — radio (Nessuna / InterneAlCantiere / ConAreeEsterne) + textarea Note disabled quando Nessuna.
+
+Pattern fra step 3-6 omogeneo: ognuno carica i propri dati on-init via `IVerbaleManager.GetXxxAsync(verbaleId)`, mantiene `List<XxxItem>` con binding two-way ai checkbox/textfield, al click "Avanti" emette `EventCallback<IReadOnlyList<XxxItem>>` al wizard parent. Il wizard mappa DTO → entità e chiama `UpdateXxxAsync`.
+
+**Wizard top-level** (`VerbaleWizard.razor`):
+- `_reachableSteps` esteso da `[1,2]` a `[1..7]`.
+- Dispatch a tutti i 7 step. Step 8-10 mostrano alert "in costruzione (B.8d)".
+- `HandleStep3SubmitAsync` ... `HandleStep7SubmitAsync` aggiunti, ognuno specifico per lo schema della rispettiva entità figlia.
+
+**WizardStepper**: etichetta step 2 cambiata da "Meteo / Esito" a "Esito / meteo" (interferenze ora hanno il loro step dedicato).
+
+**Test totali**: **16/16 in pass** (12 di B.8a + 2 di B.8b + 2 nuovi: UpdateInterferenze, UpdateAttivitaBulk).
+
+**Lavori esclusi** (vanno in B.8d): step 8 prescrizioni dinamiche, step 9 placeholder foto, step 10 riepilogo, auto-save / debounce.
+
+---
+
 ## Addendum 2026-05-06b — B.8b wizard skeleton + step 1 e 2
 
 **Routing scelta**: `/verbali/nuovo` (creazione, no Id) e `/verbali/{Id:guid}/step/{Step:int}` (edit). Route segment preferita a `?step=N` per due ragioni:
@@ -1004,6 +1043,6 @@ Spostato `@rendermode="@InteractiveServer"` da `MainLayout.razor` a `<Routes />`
 
 - **Sezioni 1-8, 10**: approvate implicitamente (nessuna contestazione).
 - **Sezione 9**: ✅ **22/22 voci approvate il 2026-05-05.**
-- **Sotto-fasi B**: B.1 / B.2 / B.3 completate. **B.4 completata 2026-05-05**: `ICMVerbaliDb` creato su `.\SQLEXPRESS`, 19 tabelle + 31 voci di seed applicate via `Invoke-Sqlcmd`. **B.5 completata 2026-05-05**: 10 Repository Dapper + 10 Manager + DI Scoped + 10 smoke test xUnit (10/10 pass). Fix Dapper-`DateOnly` documentato in Addendum. **B.6 completata 2026-05-05**: cookie auth, login/logout Minimal API, `IPasswordHasherService` (PBKDF2 via Identity), `DatabaseSeeder` `IHostedService` idempotente, policy `RequireAdmin`. **Zero NuGet aggiuntivi** (`PasswordHasher<TUser>` arriva da framework reference). Login flow verificato end-to-end via curl. **B.7 completata 2026-05-05**: anagrafiche CRUD UI (5 pagine `/anagrafica/*` con `MudDataGrid` + dialog Crea/Modifica), `AnagraficaPicker<T>` generic per il wizard B.8, NavMenu integrato, policy `RequireAdmin` su `/anagrafica/utenti`. Cambio password utente rimandato a B.7+. **B.8a completata 2026-05-06**: `IVerbaleRepository`/`Manager` estesi con creazione bozza completa transazionale (Verbale + 4 checklist pre-popolate + audit), Home riprogettata (due liste + FAB "+"), DTO `VerbaleListItem`, stub `/verbali/nuovo`. 12/12 test in pass. Fix render mode B.7 documentato in Addendum 2026-05-06. **B.8b completata 2026-05-06**: wizard skeleton (route segment `/verbali/{id}/step/{n}`), step 1 anagrafica con 7 `AnagraficaPicker`, step 2 meteo/esito/interferenze, `WizardStepper` con 10 tondini, `UpdateAnagraficaAsync` + `UpdateMeteoEsitoAsync` su Repository/Manager, righe Home cliccabili. Step 3-10 mostrano alert "in costruzione". 14/14 test in pass.
+- **Sotto-fasi B**: B.1 / B.2 / B.3 completate. **B.4 completata 2026-05-05**: `ICMVerbaliDb` creato su `.\SQLEXPRESS`, 19 tabelle + 31 voci di seed applicate via `Invoke-Sqlcmd`. **B.5 completata 2026-05-05**: 10 Repository Dapper + 10 Manager + DI Scoped + 10 smoke test xUnit (10/10 pass). Fix Dapper-`DateOnly` documentato in Addendum. **B.6 completata 2026-05-05**: cookie auth, login/logout Minimal API, `IPasswordHasherService` (PBKDF2 via Identity), `DatabaseSeeder` `IHostedService` idempotente, policy `RequireAdmin`. **Zero NuGet aggiuntivi** (`PasswordHasher<TUser>` arriva da framework reference). Login flow verificato end-to-end via curl. **B.7 completata 2026-05-05**: anagrafiche CRUD UI (5 pagine `/anagrafica/*` con `MudDataGrid` + dialog Crea/Modifica), `AnagraficaPicker<T>` generic per il wizard B.8, NavMenu integrato, policy `RequireAdmin` su `/anagrafica/utenti`. Cambio password utente rimandato a B.7+. **B.8a completata 2026-05-06**: `IVerbaleRepository`/`Manager` estesi con creazione bozza completa transazionale (Verbale + 4 checklist pre-popolate + audit), Home riprogettata (due liste + FAB "+"), DTO `VerbaleListItem`, stub `/verbali/nuovo`. 12/12 test in pass. Fix render mode B.7 documentato in Addendum 2026-05-06. **B.8b completata 2026-05-06**: wizard skeleton (route segment `/verbali/{id}/step/{n}`), step 1 anagrafica con 7 `AnagraficaPicker`, step 2 meteo/esito/interferenze, `WizardStepper` con 10 tondini, `UpdateAnagraficaAsync` + `UpdateMeteoEsitoAsync` su Repository/Manager, righe Home cliccabili. Step 3-10 mostrano alert "in costruzione". 14/14 test in pass. **B.8c completata 2026-05-06**: spostate interferenze da step 2 a step 7 (coerenza con PDF), 5 nuovi step UI (3-7), 4 GET joinati + 4 UPDATE bulk transazionali su Repository, 4 DTO `VerbaleXxxItem` in `Models/`, split `UpdateMeteoEsito` in due metodi. ReachableSteps 1-7. Step 8-10 mostrano alert "in costruzione (B.8d)". 16/16 test in pass.
 
 **Documento congelato come baseline di design.** Eventuali deviazioni emerse in implementazione devono aggiornare questo file in modo additivo (vedi CLAUDE.md "Documento vivo"). Si procede con la Fase B secondo il piano concordato in chat.

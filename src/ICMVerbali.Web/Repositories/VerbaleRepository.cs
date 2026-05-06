@@ -69,10 +69,107 @@ UPDATE dbo.Verbale
 SET Esito = @Esito,
     Meteo = @Meteo,
     TemperaturaCelsius = @TemperaturaCelsius,
-    Interferenze = @Interferenze,
+    UpdatedAt = SYSUTCDATETIME()
+WHERE Id = @Id;";
+
+    private const string SqlUpdateInterferenze = @"
+UPDATE dbo.Verbale
+SET Interferenze = @Interferenze,
     InterferenzeNote = @InterferenzeNote,
     UpdatedAt = SYSUTCDATETIME()
 WHERE Id = @Id;";
+
+    // ---------- bulk update checklist (step 3-6) ------------------------
+
+    private const string SqlUpdateAttivitaRow = @"
+UPDATE dbo.VerbaleAttivita
+SET Selezionato = @Selezionato,
+    AltroDescrizione = @AltroDescrizione
+WHERE VerbaleId = @VerbaleId AND CatalogoTipoAttivitaId = @CatalogoTipoAttivitaId;";
+
+    private const string SqlUpdateDocumentoRow = @"
+UPDATE dbo.VerbaleDocumento
+SET Applicabile = @Applicabile,
+    Conforme = @Conforme,
+    Note = @Note,
+    AltroDescrizione = @AltroDescrizione
+WHERE VerbaleId = @VerbaleId AND CatalogoTipoDocumentoId = @CatalogoTipoDocumentoId;";
+
+    private const string SqlUpdateApprestamentoRow = @"
+UPDATE dbo.VerbaleApprestamento
+SET Applicabile = @Applicabile,
+    Conforme = @Conforme,
+    Note = @Note
+WHERE VerbaleId = @VerbaleId AND CatalogoTipoApprestamentoId = @CatalogoTipoApprestamentoId;";
+
+    private const string SqlUpdateCondizioneRow = @"
+UPDATE dbo.VerbaleCondizioneAmbientale
+SET Conforme = @Conforme,
+    NonConforme = @NonConforme,
+    Note = @Note
+WHERE VerbaleId = @VerbaleId AND CatalogoTipoCondizioneAmbientaleId = @CatalogoTipoCondizioneAmbientaleId;";
+
+    private const string SqlBumpVerbaleUpdatedAt = @"
+UPDATE dbo.Verbale SET UpdatedAt = SYSUTCDATETIME() WHERE Id = @Id;";
+
+    // ---------- GET joinate (step 3-6 read) -----------------------------
+
+    private const string SqlGetAttivitaByVerbale = @"
+SELECT
+    va.CatalogoTipoAttivitaId,
+    c.Codice,
+    c.Etichetta,
+    c.Ordine,
+    va.Selezionato,
+    va.AltroDescrizione
+FROM dbo.VerbaleAttivita AS va
+INNER JOIN dbo.CatalogoTipoAttivita AS c ON c.Id = va.CatalogoTipoAttivitaId
+WHERE va.VerbaleId = @VerbaleId
+ORDER BY c.Ordine;";
+
+    private const string SqlGetDocumentiByVerbale = @"
+SELECT
+    vd.CatalogoTipoDocumentoId,
+    c.Codice,
+    c.Etichetta,
+    c.Ordine,
+    vd.Applicabile,
+    vd.Conforme,
+    vd.Note,
+    vd.AltroDescrizione
+FROM dbo.VerbaleDocumento AS vd
+INNER JOIN dbo.CatalogoTipoDocumento AS c ON c.Id = vd.CatalogoTipoDocumentoId
+WHERE vd.VerbaleId = @VerbaleId
+ORDER BY c.Ordine;";
+
+    private const string SqlGetApprestamentiByVerbale = @"
+SELECT
+    va.CatalogoTipoApprestamentoId,
+    c.Codice,
+    c.Etichetta,
+    c.Ordine,
+    c.Sottosezione,
+    va.Applicabile,
+    va.Conforme,
+    va.Note
+FROM dbo.VerbaleApprestamento AS va
+INNER JOIN dbo.CatalogoTipoApprestamento AS c ON c.Id = va.CatalogoTipoApprestamentoId
+WHERE va.VerbaleId = @VerbaleId
+ORDER BY c.Sottosezione, c.Ordine;";
+
+    private const string SqlGetCondizioniByVerbale = @"
+SELECT
+    vc.CatalogoTipoCondizioneAmbientaleId,
+    c.Codice,
+    c.Etichetta,
+    c.Ordine,
+    vc.Conforme,
+    vc.NonConforme,
+    vc.Note
+FROM dbo.VerbaleCondizioneAmbientale AS vc
+INNER JOIN dbo.CatalogoTipoCondizioneAmbientale AS c ON c.Id = vc.CatalogoTipoCondizioneAmbientaleId
+WHERE vc.VerbaleId = @VerbaleId
+ORDER BY c.Ordine;";
 
     private const string SqlGetById = @"
 SELECT
@@ -210,8 +307,6 @@ ORDER BY v.UpdatedAt DESC;";
         Entities.Enums.EsitoVerifica? esito,
         Entities.Enums.CondizioneMeteo? meteo,
         int? temperaturaCelsius,
-        Entities.Enums.GestioneInterferenze? interferenze,
-        string? interferenzeNote,
         CancellationToken ct = default)
     {
         await using var conn = await _factory.CreateOpenConnectionAsync(ct);
@@ -221,6 +316,19 @@ ORDER BY v.UpdatedAt DESC;";
             Esito = esito,
             Meteo = meteo,
             TemperaturaCelsius = temperaturaCelsius,
+        }, cancellationToken: ct));
+    }
+
+    public async Task UpdateInterferenzeAsync(
+        Guid id,
+        Entities.Enums.GestioneInterferenze? interferenze,
+        string? interferenzeNote,
+        CancellationToken ct = default)
+    {
+        await using var conn = await _factory.CreateOpenConnectionAsync(ct);
+        await conn.ExecuteAsync(new CommandDefinition(SqlUpdateInterferenze, new
+        {
+            Id = id,
             Interferenze = interferenze,
             InterferenzeNote = interferenzeNote,
         }, cancellationToken: ct));
@@ -240,5 +348,84 @@ ORDER BY v.UpdatedAt DESC;";
         var rows = await conn.QueryAsync<VerbaleListItem>(
             new CommandDefinition(SqlGetBozze, cancellationToken: ct));
         return rows.ToList();
+    }
+
+    // -------- checklist GET (step 3-6) -----------------------------------
+
+    public async Task<IReadOnlyList<VerbaleAttivitaItem>>
+        GetAttivitaByVerbaleAsync(Guid verbaleId, CancellationToken ct = default)
+    {
+        await using var conn = await _factory.CreateOpenConnectionAsync(ct);
+        var rows = await conn.QueryAsync<VerbaleAttivitaItem>(
+            new CommandDefinition(SqlGetAttivitaByVerbale, new { VerbaleId = verbaleId }, cancellationToken: ct));
+        return rows.ToList();
+    }
+
+    public async Task<IReadOnlyList<VerbaleDocumentoItem>>
+        GetDocumentiByVerbaleAsync(Guid verbaleId, CancellationToken ct = default)
+    {
+        await using var conn = await _factory.CreateOpenConnectionAsync(ct);
+        var rows = await conn.QueryAsync<VerbaleDocumentoItem>(
+            new CommandDefinition(SqlGetDocumentiByVerbale, new { VerbaleId = verbaleId }, cancellationToken: ct));
+        return rows.ToList();
+    }
+
+    public async Task<IReadOnlyList<VerbaleApprestamentoItem>>
+        GetApprestamentiByVerbaleAsync(Guid verbaleId, CancellationToken ct = default)
+    {
+        await using var conn = await _factory.CreateOpenConnectionAsync(ct);
+        var rows = await conn.QueryAsync<VerbaleApprestamentoItem>(
+            new CommandDefinition(SqlGetApprestamentiByVerbale, new { VerbaleId = verbaleId }, cancellationToken: ct));
+        return rows.ToList();
+    }
+
+    public async Task<IReadOnlyList<VerbaleCondizioneAmbientaleItem>>
+        GetCondizioniByVerbaleAsync(Guid verbaleId, CancellationToken ct = default)
+    {
+        await using var conn = await _factory.CreateOpenConnectionAsync(ct);
+        var rows = await conn.QueryAsync<VerbaleCondizioneAmbientaleItem>(
+            new CommandDefinition(SqlGetCondizioniByVerbale, new { VerbaleId = verbaleId }, cancellationToken: ct));
+        return rows.ToList();
+    }
+
+    // -------- checklist UPDATE bulk (step 3-6) ---------------------------
+    // Una transazione: UPDATE multipli sulla checklist + bump UpdatedAt sul Verbale.
+
+    public Task UpdateAttivitaBulkAsync(
+        Guid verbaleId, IEnumerable<VerbaleAttivita> rows, CancellationToken ct = default)
+        => RunBulkUpdateAsync(verbaleId, rows, SqlUpdateAttivitaRow, ct);
+
+    public Task UpdateDocumentiBulkAsync(
+        Guid verbaleId, IEnumerable<VerbaleDocumento> rows, CancellationToken ct = default)
+        => RunBulkUpdateAsync(verbaleId, rows, SqlUpdateDocumentoRow, ct);
+
+    public Task UpdateApprestamentiBulkAsync(
+        Guid verbaleId, IEnumerable<VerbaleApprestamento> rows, CancellationToken ct = default)
+        => RunBulkUpdateAsync(verbaleId, rows, SqlUpdateApprestamentoRow, ct);
+
+    public Task UpdateCondizioniBulkAsync(
+        Guid verbaleId, IEnumerable<VerbaleCondizioneAmbientale> rows, CancellationToken ct = default)
+        => RunBulkUpdateAsync(verbaleId, rows, SqlUpdateCondizioneRow, ct);
+
+    private async Task RunBulkUpdateAsync<T>(
+        Guid verbaleId, IEnumerable<T> rows, string sqlUpdateRow, CancellationToken ct)
+    {
+        await using var conn = await _factory.CreateOpenConnectionAsync(ct);
+        await using var tx = await conn.BeginTransactionAsync(ct);
+        try
+        {
+            // Dapper con IEnumerable -> N execute. Sui volumi attesi (max ~30
+            // righe per checklist) il costo e' trascurabile.
+            await conn.ExecuteAsync(new CommandDefinition(
+                sqlUpdateRow, rows, transaction: tx, cancellationToken: ct));
+            await conn.ExecuteAsync(new CommandDefinition(
+                SqlBumpVerbaleUpdatedAt, new { Id = verbaleId }, transaction: tx, cancellationToken: ct));
+            await tx.CommitAsync(ct);
+        }
+        catch
+        {
+            await tx.RollbackAsync(ct);
+            throw;
+        }
     }
 }

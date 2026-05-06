@@ -262,17 +262,118 @@ public class VerbaleRepositoryTests
                 verbaleId,
                 EsitoVerifica.NcMinori,
                 CondizioneMeteo.Pioggia,
-                temperaturaCelsius: 18,
-                GestioneInterferenze.InterneAlCantiere,
-                interferenzeNote: "Note di test interferenze.");
+                temperaturaCelsius: 18);
 
             var read = await verbaleRepo.GetByIdAsync(verbaleId);
             Assert.NotNull(read);
             Assert.Equal(EsitoVerifica.NcMinori, read!.Esito);
             Assert.Equal(CondizioneMeteo.Pioggia, read.Meteo);
             Assert.Equal(18, read.TemperaturaCelsius);
-            Assert.Equal(GestioneInterferenze.InterneAlCantiere, read.Interferenze);
-            Assert.Equal("Note di test interferenze.", read.InterferenzeNote);
+        }
+        finally
+        {
+            await CleanupAsync(verbaleId, anagrafiche);
+        }
+    }
+
+    [Fact]
+    public async Task UpdateInterferenze_writes_then_round_trip_reads_back()
+    {
+        var verbaleRepo = new VerbaleRepository(_factory);
+        var anagrafiche = await SeedAnagraficheAsync();
+        var verbaleId = Guid.NewGuid();
+        var verbale = BuildBozza(verbaleId, anagrafiche);
+        var audit = new VerbaleAudit
+        {
+            Id = Guid.NewGuid(),
+            VerbaleId = verbaleId,
+            UtenteId = anagrafiche.UtenteId,
+            DataEvento = DateTime.UtcNow,
+            EventoTipo = EventoAuditTipo.Creazione,
+        };
+
+        try
+        {
+            await verbaleRepo.CreateBozzaWithChildrenAsync(
+                verbale,
+                Array.Empty<VerbaleAttivita>(),
+                Array.Empty<VerbaleDocumento>(),
+                Array.Empty<VerbaleApprestamento>(),
+                Array.Empty<VerbaleCondizioneAmbientale>(),
+                audit);
+
+            await verbaleRepo.UpdateInterferenzeAsync(
+                verbaleId,
+                GestioneInterferenze.ConAreeEsterne,
+                "Lavorazioni adiacenti su strada pubblica.");
+
+            var read = await verbaleRepo.GetByIdAsync(verbaleId);
+            Assert.NotNull(read);
+            Assert.Equal(GestioneInterferenze.ConAreeEsterne, read!.Interferenze);
+            Assert.Equal("Lavorazioni adiacenti su strada pubblica.", read.InterferenzeNote);
+        }
+        finally
+        {
+            await CleanupAsync(verbaleId, anagrafiche);
+        }
+    }
+
+    [Fact]
+    public async Task UpdateAttivitaBulk_then_GetByVerbale_returns_joined_updated_state()
+    {
+        // Crea bozza con 1 riga in VerbaleAttivita (catalogo reale), poi
+        // toggla Selezionato + AltroDescrizione, e verifica via GET joinato.
+        var verbaleRepo = new VerbaleRepository(_factory);
+        var anagrafiche = await SeedAnagraficheAsync();
+        var verbaleId = Guid.NewGuid();
+        var verbale = BuildBozza(verbaleId, anagrafiche);
+        var catalogoId = await GetFirstCatalogoIdAsync("CatalogoTipoAttivita");
+        var attivita = new[]
+        {
+            new VerbaleAttivita
+            {
+                VerbaleId = verbaleId,
+                CatalogoTipoAttivitaId = catalogoId,
+                Selezionato = false,
+                AltroDescrizione = null,
+            }
+        };
+        var audit = new VerbaleAudit
+        {
+            Id = Guid.NewGuid(),
+            VerbaleId = verbaleId,
+            UtenteId = anagrafiche.UtenteId,
+            DataEvento = DateTime.UtcNow,
+            EventoTipo = EventoAuditTipo.Creazione,
+        };
+
+        try
+        {
+            await verbaleRepo.CreateBozzaWithChildrenAsync(
+                verbale, attivita,
+                Array.Empty<VerbaleDocumento>(),
+                Array.Empty<VerbaleApprestamento>(),
+                Array.Empty<VerbaleCondizioneAmbientale>(),
+                audit);
+
+            // Toggla a Selezionato=true, aggiorna in transazione.
+            var updated = new[]
+            {
+                new VerbaleAttivita
+                {
+                    VerbaleId = verbaleId,
+                    CatalogoTipoAttivitaId = catalogoId,
+                    Selezionato = true,
+                    AltroDescrizione = "Voce di test",
+                }
+            };
+            await verbaleRepo.UpdateAttivitaBulkAsync(verbaleId, updated);
+
+            var read = await verbaleRepo.GetAttivitaByVerbaleAsync(verbaleId);
+            Assert.Single(read);
+            Assert.True(read[0].Selezionato);
+            Assert.Equal("Voce di test", read[0].AltroDescrizione);
+            Assert.False(string.IsNullOrEmpty(read[0].Etichetta));
         }
         finally
         {

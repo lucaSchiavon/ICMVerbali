@@ -1,0 +1,86 @@
+@*
+    Step 3 del wizard: 16 voci di "attività in corso" (Sez. 3 PDF). Le righe
+    sono pre-popolate alla creazione bozza (B.8a) con Selezionato=false. La UI
+    bind direttamente i flag di VerbaleAttivitaItem (campi mutable get;set).
+    Save bulk al click "Avanti".
+*@
+
+@using ICMVerbali.Web.Managers.Interfaces
+@using ICMVerbali.Web.Models
+
+@inject IVerbaleManager VerbaleManager
+
+<MudPaper Class="pa-6" Elevation="1">
+    <MudText Typo="Typo.h6" GutterBottom="true">Sezione 3 — Attività in corso</MudText>
+
+    @if (_loading)
+    {
+        <MudProgressLinear Indeterminate="true" Class="my-4" />
+    }
+    else
+    {
+        <MudList T="VerbaleAttivitaItem" Dense="true">
+            @foreach (var item in _items)
+            {
+                var captured = item;
+                <MudListItem T="VerbaleAttivitaItem">
+                    <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2">
+                        <MudCheckBox T="bool" Value="captured.Selezionato"
+                                     ValueChanged="@((bool v) => captured.Selezionato = v)"
+                                     Label="@captured.Etichetta" />
+                        @if (IsAltro(captured) && captured.Selezionato)
+                        {
+                            <MudTextField T="string" Value="captured.AltroDescrizione"
+                                          ValueChanged="@((string? d) => captured.AltroDescrizione = d)"
+                                          Placeholder="Specifica la voce 'Altro'..."
+                                          Variant="Variant.Outlined"
+                                          Margin="Margin.Dense"
+                                          Class="flex-grow-1" />
+                        }
+                    </MudStack>
+                </MudListItem>
+            }
+        </MudList>
+
+        <MudStack Row="true" Justify="Justify.SpaceBetween" Class="mt-6">
+            <MudButton Variant="Variant.Text"
+                       StartIcon="@Icons.Material.Filled.ArrowBack"
+                       OnClick="OnBack">
+                Indietro
+            </MudButton>
+            <MudButton Variant="Variant.Filled" Color="Color.Primary"
+                       Disabled="_saving"
+                       OnClick="HandleSubmitAsync"
+                       EndIcon="@Icons.Material.Filled.ArrowForward">
+                Salva e prosegui
+            </MudButton>
+        </MudStack>
+    }
+</MudPaper>
+
+@code {
+    [Parameter, EditorRequired] public Guid VerbaleId { get; set; }
+    [Parameter] public EventCallback<IReadOnlyList<VerbaleAttivitaItem>> OnSubmit { get; set; }
+    [Parameter] public EventCallback OnBack { get; set; }
+
+    private bool _loading = true;
+    private bool _saving;
+    private List<VerbaleAttivitaItem> _items = new();
+
+    protected override async Task OnInitializedAsync()
+    {
+        var rows = await VerbaleManager.GetAttivitaAsync(VerbaleId);
+        _items = rows.ToList();
+        _loading = false;
+    }
+
+    private static bool IsAltro(VerbaleAttivitaItem item)
+        => item.Codice.EndsWith("_ALTRO", StringComparison.OrdinalIgnoreCase);
+
+    private async Task HandleSubmitAsync()
+    {
+        _saving = true;
+        await OnSubmit.InvokeAsync(_items);
+        _saving = false;
+    }
+}

@@ -1,18 +1,16 @@
 @*
-    Step 2 del wizard: condizioni meteo, esito complessivo della verifica
-    (Sez. 2 PDF) e gestione interferenze (Sez. 7 PDF). Accorpati nello stesso
-    step perche' sono pochi campi ciascuno e logicamente affini.
+    Step 2 del wizard: esito complessivo (Sez. 2 PDF) + condizioni meteo +
+    temperatura. Le interferenze (Sez. 7 PDF) sono nello step dedicato 7.
 
-    Tutti i campi enum sono nullable in DB per ammettere bozze parziali; in UI
-    "Esito" e "Meteo" sono richiesti per avanzare allo step 3 (regola wizard,
-    non DB). InterferenzeNote libero, attivo solo se Interferenze != Nessuna.
+    Esito e Meteo sono richiesti per avanzare allo step 3 (regola wizard,
+    non DB: in DB sono nullable per ammettere bozze parziali).
 *@
 
 @using ICMVerbali.Web.Entities
 @using ICMVerbali.Web.Entities.Enums
 
 <MudPaper Class="pa-6" Elevation="1">
-    <MudText Typo="Typo.h6" GutterBottom="true">Sezione 2 — Esito, meteo e interferenze</MudText>
+    <MudText Typo="Typo.h6" GutterBottom="true">Sezione 2 — Esito e meteo</MudText>
 
     <MudGrid>
         <MudItem xs="12" md="6">
@@ -37,22 +35,6 @@
             <MudNumericField T="int?" Label="Temperatura (°C)" Value="_temperatura"
                              ValueChanged="@((int? t) => _temperatura = t)"
                              Min="-30" Max="60" Class="mt-4" />
-        </MudItem>
-
-        <MudItem xs="12">
-            <MudDivider Class="my-4" />
-            <MudText Typo="Typo.subtitle2" Class="mb-2">Gestione interferenze (Sez. 7)</MudText>
-            <MudRadioGroup T="GestioneInterferenze?" Value="_interferenze"
-                           ValueChanged="@((GestioneInterferenze? g) => _interferenze = g)">
-                <MudRadio T="GestioneInterferenze?" Value="@((GestioneInterferenze?)GestioneInterferenze.Nessuna)">Nessuna</MudRadio>
-                <MudRadio T="GestioneInterferenze?" Value="@((GestioneInterferenze?)GestioneInterferenze.InterneAlCantiere)">Interne al cantiere</MudRadio>
-                <MudRadio T="GestioneInterferenze?" Value="@((GestioneInterferenze?)GestioneInterferenze.ConAreeEsterne)">Con aree esterne</MudRadio>
-            </MudRadioGroup>
-
-            <MudTextField T="string" Label="Note interferenze" Value="_interferenzeNote"
-                          ValueChanged="@((string? n) => _interferenzeNote = n)"
-                          Lines="3" Class="mt-2"
-                          Disabled="@(_interferenze is null or GestioneInterferenze.Nessuna)" />
         </MudItem>
     </MudGrid>
 
@@ -80,16 +62,12 @@
     private EsitoVerifica? _esito;
     private CondizioneMeteo? _meteo;
     private int? _temperatura;
-    private GestioneInterferenze? _interferenze = GestioneInterferenze.Nessuna;
-    private string? _interferenzeNote;
 
     protected override void OnInitialized()
     {
         _esito = Existing.Esito;
         _meteo = Existing.Meteo;
         _temperatura = Existing.TemperaturaCelsius;
-        _interferenze = Existing.Interferenze ?? GestioneInterferenze.Nessuna;
-        _interferenzeNote = Existing.InterferenzeNote;
     }
 
     private bool IsValid()
@@ -99,12 +77,7 @@
     {
         if (!IsValid()) return;
         _saving = true;
-        var submission = new Step2Submission(
-            _esito,
-            _meteo,
-            _temperatura,
-            _interferenze,
-            _interferenze is null or GestioneInterferenze.Nessuna ? null : _interferenzeNote);
+        var submission = new Step2Submission(_esito, _meteo, _temperatura);
         await OnSubmit.InvokeAsync(submission);
         _saving = false;
     }
@@ -112,7 +85,5 @@
     public sealed record Step2Submission(
         EsitoVerifica? Esito,
         CondizioneMeteo? Meteo,
-        int? TemperaturaCelsius,
-        GestioneInterferenze? Interferenze,
-        string? InterferenzeNote);
+        int? TemperaturaCelsius);
 }

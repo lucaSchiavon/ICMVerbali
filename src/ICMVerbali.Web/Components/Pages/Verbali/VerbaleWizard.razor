@@ -7,6 +7,7 @@
 @using ICMVerbali.Web.Components.Shared
 @using ICMVerbali.Web.Entities
 @using ICMVerbali.Web.Managers.Interfaces
+@using ICMVerbali.Web.Models
 
 @inject IVerbaleManager VerbaleManager
 @inject NavigationManager Nav
@@ -43,11 +44,41 @@
                           OnSubmit="HandleStep2SubmitAsync"
                           OnBack="@(() => GoToStep(1))" />
     }
+    else if (_currentStep == 3 && _verbale is not null)
+    {
+        <WizardStep3Attivita VerbaleId="_verbale.Id"
+                             OnSubmit="HandleStep3SubmitAsync"
+                             OnBack="@(() => GoToStep(2))" />
+    }
+    else if (_currentStep == 4 && _verbale is not null)
+    {
+        <WizardStep4Documenti VerbaleId="_verbale.Id"
+                              OnSubmit="HandleStep4SubmitAsync"
+                              OnBack="@(() => GoToStep(3))" />
+    }
+    else if (_currentStep == 5 && _verbale is not null)
+    {
+        <WizardStep5Apprestamenti VerbaleId="_verbale.Id"
+                                  OnSubmit="HandleStep5SubmitAsync"
+                                  OnBack="@(() => GoToStep(4))" />
+    }
+    else if (_currentStep == 6 && _verbale is not null)
+    {
+        <WizardStep6CondizioniAmbientali VerbaleId="_verbale.Id"
+                                         OnSubmit="HandleStep6SubmitAsync"
+                                         OnBack="@(() => GoToStep(5))" />
+    }
+    else if (_currentStep == 7 && _verbale is not null)
+    {
+        <WizardStep7Interferenze Existing="_verbale"
+                                 OnSubmit="HandleStep7SubmitAsync"
+                                 OnBack="@(() => GoToStep(6))" />
+    }
     else
     {
         <MudPaper Class="pa-6" Elevation="1">
             <MudAlert Severity="Severity.Info" Variant="Variant.Outlined">
-                Sezione @_currentStep — Wizard step in costruzione (B.8c / B.8d).
+                Sezione @_currentStep — Wizard step in costruzione (B.8d).
             </MudAlert>
             <MudButton Variant="Variant.Text" Class="mt-4"
                        StartIcon="@Icons.Material.Filled.ArrowBack"
@@ -68,9 +99,8 @@
     private int _currentStep = 1;
     private bool _loading = true;
 
-    // In B.8b sono raggiungibili solo gli step 1 e 2 di un verbale esistente.
-    // B.8c estende fino a 7, B.8d fino a 10.
-    private static readonly IReadOnlyList<int> _reachableSteps = new[] { 1, 2 };
+    // B.8c estende ReachableSteps a 1-7. B.8d aggiungera' 8-10.
+    private static readonly IReadOnlyList<int> _reachableSteps = new[] { 1, 2, 3, 4, 5, 6, 7 };
 
     protected override async Task OnParametersSetAsync()
     {
@@ -132,10 +162,82 @@
     {
         if (_verbale is null) return;
         await VerbaleManager.UpdateMeteoEsitoAsync(
-            _verbale.Id, s.Esito, s.Meteo, s.TemperaturaCelsius, s.Interferenze, s.InterferenzeNote);
+            _verbale.Id, s.Esito, s.Meteo, s.TemperaturaCelsius);
 
         Snackbar.Add("Esito e meteo salvati.", Severity.Success);
         Nav.NavigateTo($"/verbali/{_verbale.Id}/step/3");
+    }
+
+    private async Task HandleStep3SubmitAsync(IReadOnlyList<VerbaleAttivitaItem> items)
+    {
+        if (_verbale is null) return;
+        var entities = items.Select(i => new VerbaleAttivita
+        {
+            VerbaleId = _verbale.Id,
+            CatalogoTipoAttivitaId = i.CatalogoTipoAttivitaId,
+            Selezionato = i.Selezionato,
+            AltroDescrizione = i.AltroDescrizione,
+        });
+        await VerbaleManager.UpdateAttivitaAsync(_verbale.Id, entities);
+        Snackbar.Add("Attività salvate.", Severity.Success);
+        Nav.NavigateTo($"/verbali/{_verbale.Id}/step/4");
+    }
+
+    private async Task HandleStep4SubmitAsync(IReadOnlyList<VerbaleDocumentoItem> items)
+    {
+        if (_verbale is null) return;
+        var entities = items.Select(i => new VerbaleDocumento
+        {
+            VerbaleId = _verbale.Id,
+            CatalogoTipoDocumentoId = i.CatalogoTipoDocumentoId,
+            Applicabile = i.Applicabile,
+            Conforme = i.Conforme,
+            Note = i.Note,
+            AltroDescrizione = i.AltroDescrizione,
+        });
+        await VerbaleManager.UpdateDocumentiAsync(_verbale.Id, entities);
+        Snackbar.Add("Documenti salvati.", Severity.Success);
+        Nav.NavigateTo($"/verbali/{_verbale.Id}/step/5");
+    }
+
+    private async Task HandleStep5SubmitAsync(IReadOnlyList<VerbaleApprestamentoItem> items)
+    {
+        if (_verbale is null) return;
+        var entities = items.Select(i => new VerbaleApprestamento
+        {
+            VerbaleId = _verbale.Id,
+            CatalogoTipoApprestamentoId = i.CatalogoTipoApprestamentoId,
+            Applicabile = i.Applicabile,
+            Conforme = i.Conforme,
+            Note = i.Note,
+        });
+        await VerbaleManager.UpdateApprestamentiAsync(_verbale.Id, entities);
+        Snackbar.Add("Apprestamenti salvati.", Severity.Success);
+        Nav.NavigateTo($"/verbali/{_verbale.Id}/step/6");
+    }
+
+    private async Task HandleStep6SubmitAsync(IReadOnlyList<VerbaleCondizioneAmbientaleItem> items)
+    {
+        if (_verbale is null) return;
+        var entities = items.Select(i => new VerbaleCondizioneAmbientale
+        {
+            VerbaleId = _verbale.Id,
+            CatalogoTipoCondizioneAmbientaleId = i.CatalogoTipoCondizioneAmbientaleId,
+            Conforme = i.Conforme,
+            NonConforme = i.NonConforme,
+            Note = i.Note,
+        });
+        await VerbaleManager.UpdateCondizioniAsync(_verbale.Id, entities);
+        Snackbar.Add("Condizioni ambientali salvate.", Severity.Success);
+        Nav.NavigateTo($"/verbali/{_verbale.Id}/step/7");
+    }
+
+    private async Task HandleStep7SubmitAsync(WizardStep7Interferenze.Step7Submission s)
+    {
+        if (_verbale is null) return;
+        await VerbaleManager.UpdateInterferenzeAsync(_verbale.Id, s.Interferenze, s.Note);
+        Snackbar.Add("Interferenze salvate.", Severity.Success);
+        Nav.NavigateTo($"/verbali/{_verbale.Id}/step/8");
     }
 
     private void HandleCancelAsync() => Nav.NavigateTo("/");

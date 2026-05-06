@@ -1,0 +1,110 @@
+@*
+    Step 5 del wizard: apprestamenti di sicurezza (Sez. 5 PDF, art. 92 D.Lgs.
+    81/2008). Le voci sono raggruppate nelle 4 sottosezioni 5.1-5.4 indicate
+    sull'enum SottosezioneApprestamento. Stesso schema di step 4 (APPL/CONF/Note).
+*@
+
+@using ICMVerbali.Web.Entities.Enums
+@using ICMVerbali.Web.Managers.Interfaces
+@using ICMVerbali.Web.Models
+
+@inject IVerbaleManager VerbaleManager
+
+<MudPaper Class="pa-6" Elevation="1">
+    <MudText Typo="Typo.h6" GutterBottom="true">Sezione 5 — Apprestamenti di sicurezza</MudText>
+
+    @if (_loading)
+    {
+        <MudProgressLinear Indeterminate="true" Class="my-4" />
+    }
+    else
+    {
+        @foreach (var gruppo in _items.GroupBy(i => i.Sottosezione).OrderBy(g => g.Key))
+        {
+            <MudText Typo="Typo.subtitle1" Class="mt-4 mb-2">
+                <strong>@SottosezioneLabel(gruppo.Key)</strong>
+            </MudText>
+            <MudSimpleTable Dense="true" Hover="true" Style="overflow-x: auto;">
+                <thead>
+                    <tr>
+                        <th style="width: 50%;">Apprestamento</th>
+                        <th style="width: 8%;">APPL</th>
+                        <th style="width: 8%;">CONF</th>
+                        <th style="width: 34%;">Note</th>
+                    </tr>
+                </thead>
+                <tbody>
+                @foreach (var item in gruppo)
+                {
+                    var captured = item;
+                    <tr>
+                        <td>@captured.Etichetta</td>
+                        <td>
+                            <MudCheckBox T="bool" Value="captured.Applicabile"
+                                         ValueChanged="@((bool v) => captured.Applicabile = v)" />
+                        </td>
+                        <td>
+                            <MudCheckBox T="bool" Value="captured.Conforme"
+                                         ValueChanged="@((bool v) => captured.Conforme = v)"
+                                         Disabled="@(!captured.Applicabile)" />
+                        </td>
+                        <td>
+                            <MudTextField T="string" Value="captured.Note"
+                                          ValueChanged="@((string? n) => captured.Note = n)"
+                                          Variant="Variant.Outlined"
+                                          Margin="Margin.Dense" />
+                        </td>
+                    </tr>
+                }
+                </tbody>
+            </MudSimpleTable>
+        }
+
+        <MudStack Row="true" Justify="Justify.SpaceBetween" Class="mt-6">
+            <MudButton Variant="Variant.Text"
+                       StartIcon="@Icons.Material.Filled.ArrowBack"
+                       OnClick="OnBack">
+                Indietro
+            </MudButton>
+            <MudButton Variant="Variant.Filled" Color="Color.Primary"
+                       Disabled="_saving"
+                       OnClick="HandleSubmitAsync"
+                       EndIcon="@Icons.Material.Filled.ArrowForward">
+                Salva e prosegui
+            </MudButton>
+        </MudStack>
+    }
+</MudPaper>
+
+@code {
+    [Parameter, EditorRequired] public Guid VerbaleId { get; set; }
+    [Parameter] public EventCallback<IReadOnlyList<VerbaleApprestamentoItem>> OnSubmit { get; set; }
+    [Parameter] public EventCallback OnBack { get; set; }
+
+    private bool _loading = true;
+    private bool _saving;
+    private List<VerbaleApprestamentoItem> _items = new();
+
+    protected override async Task OnInitializedAsync()
+    {
+        var rows = await VerbaleManager.GetApprestamentiAsync(VerbaleId);
+        _items = rows.ToList();
+        _loading = false;
+    }
+
+    private static string SottosezioneLabel(SottosezioneApprestamento s) => s switch
+    {
+        SottosezioneApprestamento.Organizzazione => "5.1 Organizzazione del cantiere",
+        SottosezioneApprestamento.CaduteDallAlto => "5.2 Cadute dall'alto",
+        SottosezioneApprestamento.EmergenzeEDpi => "5.3 Emergenze e DPI",
+        SottosezioneApprestamento.Impianti => "5.4 Impianti",
+        _ => s.ToString(),
+    };
+
+    private async Task HandleSubmitAsync()
+    {
+        _saving = true;
+        await OnSubmit.InvokeAsync(_items);
+        _saving = false;
+    }
+}

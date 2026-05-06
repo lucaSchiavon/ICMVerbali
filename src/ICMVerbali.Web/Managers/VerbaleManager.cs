@@ -152,14 +152,53 @@ public sealed class VerbaleManager : IVerbaleManager
         EsitoVerifica? esito,
         CondizioneMeteo? meteo,
         int? temperaturaCelsius,
+        CancellationToken ct = default)
+        => _repo.UpdateMeteoEsitoAsync(id, esito, meteo, temperaturaCelsius, ct);
+
+    public Task UpdateInterferenzeAsync(
+        Guid id,
         GestioneInterferenze? interferenze,
         string? interferenzeNote,
         CancellationToken ct = default)
-        => _repo.UpdateMeteoEsitoAsync(id, esito, meteo, temperaturaCelsius, interferenze, interferenzeNote, ct);
+        => _repo.UpdateInterferenzeAsync(id, interferenze, interferenzeNote, ct);
 
     public Task<IReadOnlyList<VerbaleListItem>> GetVerbaliDelGiornoAsync(DateOnly data, CancellationToken ct = default)
         => _repo.GetByDataAsync(data, ct);
 
     public Task<IReadOnlyList<VerbaleListItem>> GetBozzeAsync(CancellationToken ct = default)
         => _repo.GetBozzeAsync(ct);
+
+    // -------- checklist (step 3-6 wizard) -------------------------------
+
+    public Task<IReadOnlyList<VerbaleAttivitaItem>>
+        GetAttivitaAsync(Guid verbaleId, CancellationToken ct = default)
+        => _repo.GetAttivitaByVerbaleAsync(verbaleId, ct);
+
+    public Task<IReadOnlyList<VerbaleDocumentoItem>>
+        GetDocumentiAsync(Guid verbaleId, CancellationToken ct = default)
+        => _repo.GetDocumentiByVerbaleAsync(verbaleId, ct);
+
+    public Task<IReadOnlyList<VerbaleApprestamentoItem>>
+        GetApprestamentiAsync(Guid verbaleId, CancellationToken ct = default)
+        => _repo.GetApprestamentiByVerbaleAsync(verbaleId, ct);
+
+    public Task<IReadOnlyList<VerbaleCondizioneAmbientaleItem>>
+        GetCondizioniAsync(Guid verbaleId, CancellationToken ct = default)
+        => _repo.GetCondizioniByVerbaleAsync(verbaleId, ct);
+
+    public Task UpdateAttivitaAsync(
+        Guid verbaleId, IEnumerable<VerbaleAttivita> rows, CancellationToken ct = default)
+        => _repo.UpdateAttivitaBulkAsync(verbaleId, rows, ct);
+
+    public Task UpdateDocumentiAsync(
+        Guid verbaleId, IEnumerable<VerbaleDocumento> rows, CancellationToken ct = default)
+        => _repo.UpdateDocumentiBulkAsync(verbaleId, rows, ct);
+
+    public Task UpdateApprestamentiAsync(
+        Guid verbaleId, IEnumerable<VerbaleApprestamento> rows, CancellationToken ct = default)
+        => _repo.UpdateApprestamentiBulkAsync(verbaleId, rows, ct);
+
+    public Task UpdateCondizioniAsync(
+        Guid verbaleId, IEnumerable<VerbaleCondizioneAmbientale> rows, CancellationToken ct = default)
+        => _repo.UpdateCondizioniBulkAsync(verbaleId, rows, ct);
 }

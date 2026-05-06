@@ -1,0 +1,74 @@
+@*
+    Step 7 del wizard: gestione interferenze (Sez. 7 PDF). Era nello step 2
+    in B.8b ma il PDF la mette nella sua sezione dedicata, quindi qui.
+    Default Nessuna, le note sono libere e attive solo se != Nessuna.
+*@
+
+@using ICMVerbali.Web.Entities
+@using ICMVerbali.Web.Entities.Enums
+
+<MudPaper Class="pa-6" Elevation="1">
+    <MudText Typo="Typo.h6" GutterBottom="true">Sezione 7 — Gestione interferenze</MudText>
+
+    <MudRadioGroup T="GestioneInterferenze?" Value="_interferenze"
+                   ValueChanged="@((GestioneInterferenze? g) => _interferenze = g)">
+        <MudRadio T="GestioneInterferenze?" Value="@((GestioneInterferenze?)GestioneInterferenze.Nessuna)">
+            Nessuna interferenza con altre lavorazioni
+        </MudRadio>
+        <MudRadio T="GestioneInterferenze?" Value="@((GestioneInterferenze?)GestioneInterferenze.InterneAlCantiere)">
+            Interferenze interne al cantiere
+        </MudRadio>
+        <MudRadio T="GestioneInterferenze?" Value="@((GestioneInterferenze?)GestioneInterferenze.ConAreeEsterne)">
+            Interferenze con aree esterne / pubbliche
+        </MudRadio>
+    </MudRadioGroup>
+
+    <MudTextField T="string" Label="Note interferenze" Value="_note"
+                  ValueChanged="@((string? n) => _note = n)"
+                  Lines="4" Class="mt-4"
+                  Disabled="@(_interferenze is null or GestioneInterferenze.Nessuna)" />
+
+    <MudStack Row="true" Justify="Justify.SpaceBetween" Class="mt-6">
+        <MudButton Variant="Variant.Text"
+                   StartIcon="@Icons.Material.Filled.ArrowBack"
+                   OnClick="OnBack">
+            Indietro
+        </MudButton>
+        <MudButton Variant="Variant.Filled" Color="Color.Primary"
+                   Disabled="_saving"
+                   OnClick="HandleSubmitAsync"
+                   EndIcon="@Icons.Material.Filled.ArrowForward">
+            Salva e prosegui
+        </MudButton>
+    </MudStack>
+</MudPaper>
+
+@code {
+    [Parameter, EditorRequired] public Verbale Existing { get; set; } = null!;
+    [Parameter] public EventCallback<Step7Submission> OnSubmit { get; set; }
+    [Parameter] public EventCallback OnBack { get; set; }
+
+    private bool _saving;
+    private GestioneInterferenze? _interferenze = GestioneInterferenze.Nessuna;
+    private string? _note;
+
+    protected override void OnInitialized()
+    {
+        _interferenze = Existing.Interferenze ?? GestioneInterferenze.Nessuna;
+        _note = Existing.InterferenzeNote;
+    }
+
+    private async Task HandleSubmitAsync()
+    {
+        _saving = true;
+        var submission = new Step7Submission(
+            _interferenze,
+            _interferenze is null or GestioneInterferenze.Nessuna ? null : _note);
+        await OnSubmit.InvokeAsync(submission);
+        _saving = false;
+    }
+
+    public sealed record Step7Submission(
+        GestioneInterferenze? Interferenze,
+        string? Note);
+}
