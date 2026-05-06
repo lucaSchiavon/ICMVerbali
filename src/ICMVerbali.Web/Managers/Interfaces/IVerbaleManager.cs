@@ -1,4 +1,5 @@
 using ICMVerbali.Web.Entities;
+using ICMVerbali.Web.Entities.Enums;
 using ICMVerbali.Web.Models;
 
 namespace ICMVerbali.Web.Managers.Interfaces;
@@ -24,6 +25,30 @@ public interface IVerbaleManager
         CancellationToken ct = default);
 
     Task<Verbale?> GetAsync(Guid id, CancellationToken ct = default);
+
+    // Step 1 wizard in modifica: aggiorna data + 7 FK anagrafica.
+    Task UpdateAnagraficaAsync(
+        Guid id,
+        DateOnly data,
+        Guid cantiereId,
+        Guid committenteId,
+        Guid impresaAppaltatriceId,
+        Guid rlPersonaId,
+        Guid cspPersonaId,
+        Guid csePersonaId,
+        Guid dlPersonaId,
+        CancellationToken ct = default);
+
+    // Step 2 wizard: meteo + esito + interferenze. I campi sono nullable perche'
+    // in bozza l'utente puo' salvare parzialmente (validazione hard alla firma, §9.22).
+    Task UpdateMeteoEsitoAsync(
+        Guid id,
+        EsitoVerifica? esito,
+        CondizioneMeteo? meteo,
+        int? temperaturaCelsius,
+        GestioneInterferenze? interferenze,
+        string? interferenzeNote,
+        CancellationToken ct = default);
 
     // Verbali firmati / chiusi del giorno richiesto. Le bozze NON sono incluse
     // (hanno una sezione dedicata in Home).

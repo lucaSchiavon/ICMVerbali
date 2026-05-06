@@ -175,6 +175,111 @@ public class VerbaleRepositoryTests
         }
     }
 
+    [Fact]
+    public async Task UpdateAnagrafica_changes_data_and_fk_then_round_trip_reads_back()
+    {
+        var verbaleRepo = new VerbaleRepository(_factory);
+        var anagrafiche = await SeedAnagraficheAsync();
+        var verbaleId = Guid.NewGuid();
+        var verbale = BuildBozza(verbaleId, anagrafiche);
+        var audit = new VerbaleAudit
+        {
+            Id = Guid.NewGuid(),
+            VerbaleId = verbaleId,
+            UtenteId = anagrafiche.UtenteId,
+            DataEvento = DateTime.UtcNow,
+            EventoTipo = EventoAuditTipo.Creazione,
+        };
+
+        // Crea un secondo cantiere a cui spostare il verbale (cleanup nel finally).
+        var altroCantiereId = Guid.NewGuid();
+        var altroCantiere = new Cantiere
+        {
+            Id = altroCantiereId,
+            Ubicazione = $"Test loc ALT {Guid.NewGuid():N}",
+            Tipologia = "Test",
+            IsAttivo = true,
+        };
+
+        try
+        {
+            await verbaleRepo.CreateBozzaWithChildrenAsync(
+                verbale,
+                Array.Empty<VerbaleAttivita>(),
+                Array.Empty<VerbaleDocumento>(),
+                Array.Empty<VerbaleApprestamento>(),
+                Array.Empty<VerbaleCondizioneAmbientale>(),
+                audit);
+
+            await new CantiereRepository(_factory).CreateAsync(altroCantiere);
+
+            var nuovaData = verbale.Data.AddDays(-3);
+            await verbaleRepo.UpdateAnagraficaAsync(
+                verbaleId, nuovaData,
+                altroCantiereId, anagrafiche.CommittenteId, anagrafiche.ImpresaId,
+                anagrafiche.PersonaId, anagrafiche.PersonaId, anagrafiche.PersonaId, anagrafiche.PersonaId);
+
+            var read = await verbaleRepo.GetByIdAsync(verbaleId);
+            Assert.NotNull(read);
+            Assert.Equal(nuovaData, read!.Data);
+            Assert.Equal(altroCantiereId, read.CantiereId);
+        }
+        finally
+        {
+            await CleanupAsync(verbaleId, anagrafiche);
+            await using var conn = await _factory.CreateOpenConnectionAsync();
+            await conn.ExecuteAsync("DELETE FROM dbo.Cantiere WHERE Id = @Id", new { Id = altroCantiereId });
+        }
+    }
+
+    [Fact]
+    public async Task UpdateMeteoEsito_writes_nullable_fields_and_round_trip_reads_back()
+    {
+        var verbaleRepo = new VerbaleRepository(_factory);
+        var anagrafiche = await SeedAnagraficheAsync();
+        var verbaleId = Guid.NewGuid();
+        var verbale = BuildBozza(verbaleId, anagrafiche);
+        var audit = new VerbaleAudit
+        {
+            Id = Guid.NewGuid(),
+            VerbaleId = verbaleId,
+            UtenteId = anagrafiche.UtenteId,
+            DataEvento = DateTime.UtcNow,
+            EventoTipo = EventoAuditTipo.Creazione,
+        };
+
+        try
+        {
+            await verbaleRepo.CreateBozzaWithChildrenAsync(
+                verbale,
+                Array.Empty<VerbaleAttivita>(),
+                Array.Empty<VerbaleDocumento>(),
+                Array.Empty<VerbaleApprestamento>(),
+                Array.Empty<VerbaleCondizioneAmbientale>(),
+                audit);
+
+            await verbaleRepo.UpdateMeteoEsitoAsync(
+                verbaleId,
+                EsitoVerifica.NcMinori,
+                CondizioneMeteo.Pioggia,
+                temperaturaCelsius: 18,
+                GestioneInterferenze.InterneAlCantiere,
+                interferenzeNote: "Note di test interferenze.");
+
+            var read = await verbaleRepo.GetByIdAsync(verbaleId);
+            Assert.NotNull(read);
+            Assert.Equal(EsitoVerifica.NcMinori, read!.Esito);
+            Assert.Equal(CondizioneMeteo.Pioggia, read.Meteo);
+            Assert.Equal(18, read.TemperaturaCelsius);
+            Assert.Equal(GestioneInterferenze.InterneAlCantiere, read.Interferenze);
+            Assert.Equal("Note di test interferenze.", read.InterferenzeNote);
+        }
+        finally
+        {
+            await CleanupAsync(verbaleId, anagrafiche);
+        }
+    }
+
     // --------- helpers ----------------------------------------------------
 
     private sealed record AnagraficheSeed(

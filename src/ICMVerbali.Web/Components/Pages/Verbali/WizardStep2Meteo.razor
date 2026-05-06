@@ -1,0 +1,118 @@
+@*
+    Step 2 del wizard: condizioni meteo, esito complessivo della verifica
+    (Sez. 2 PDF) e gestione interferenze (Sez. 7 PDF). Accorpati nello stesso
+    step perche' sono pochi campi ciascuno e logicamente affini.
+
+    Tutti i campi enum sono nullable in DB per ammettere bozze parziali; in UI
+    "Esito" e "Meteo" sono richiesti per avanzare allo step 3 (regola wizard,
+    non DB). InterferenzeNote libero, attivo solo se Interferenze != Nessuna.
+*@
+
+@using ICMVerbali.Web.Entities
+@using ICMVerbali.Web.Entities.Enums
+
+<MudPaper Class="pa-6" Elevation="1">
+    <MudText Typo="Typo.h6" GutterBottom="true">Sezione 2 — Esito, meteo e interferenze</MudText>
+
+    <MudGrid>
+        <MudItem xs="12" md="6">
+            <MudText Typo="Typo.subtitle2" Class="mb-2">Esito complessivo</MudText>
+            <MudRadioGroup T="EsitoVerifica?" Value="_esito" ValueChanged="@((EsitoVerifica? e) => _esito = e)">
+                <MudRadio T="EsitoVerifica?" Value="@((EsitoVerifica?)EsitoVerifica.Conforme)">Conforme</MudRadio>
+                <MudRadio T="EsitoVerifica?" Value="@((EsitoVerifica?)EsitoVerifica.NcMinori)">Non conformità minori</MudRadio>
+                <MudRadio T="EsitoVerifica?" Value="@((EsitoVerifica?)EsitoVerifica.NcGravi)">Non conformità gravi</MudRadio>
+                <MudRadio T="EsitoVerifica?" Value="@((EsitoVerifica?)EsitoVerifica.Sospensione)">Sospensione attività</MudRadio>
+            </MudRadioGroup>
+        </MudItem>
+
+        <MudItem xs="12" md="6">
+            <MudText Typo="Typo.subtitle2" Class="mb-2">Condizioni meteo</MudText>
+            <MudRadioGroup T="CondizioneMeteo?" Value="_meteo" ValueChanged="@((CondizioneMeteo? m) => _meteo = m)">
+                <MudRadio T="CondizioneMeteo?" Value="@((CondizioneMeteo?)CondizioneMeteo.Sereno)">Sereno</MudRadio>
+                <MudRadio T="CondizioneMeteo?" Value="@((CondizioneMeteo?)CondizioneMeteo.Nuvoloso)">Nuvoloso</MudRadio>
+                <MudRadio T="CondizioneMeteo?" Value="@((CondizioneMeteo?)CondizioneMeteo.Pioggia)">Pioggia</MudRadio>
+                <MudRadio T="CondizioneMeteo?" Value="@((CondizioneMeteo?)CondizioneMeteo.Neve)">Neve</MudRadio>
+            </MudRadioGroup>
+
+            <MudNumericField T="int?" Label="Temperatura (°C)" Value="_temperatura"
+                             ValueChanged="@((int? t) => _temperatura = t)"
+                             Min="-30" Max="60" Class="mt-4" />
+        </MudItem>
+
+        <MudItem xs="12">
+            <MudDivider Class="my-4" />
+            <MudText Typo="Typo.subtitle2" Class="mb-2">Gestione interferenze (Sez. 7)</MudText>
+            <MudRadioGroup T="GestioneInterferenze?" Value="_interferenze"
+                           ValueChanged="@((GestioneInterferenze? g) => _interferenze = g)">
+                <MudRadio T="GestioneInterferenze?" Value="@((GestioneInterferenze?)GestioneInterferenze.Nessuna)">Nessuna</MudRadio>
+                <MudRadio T="GestioneInterferenze?" Value="@((GestioneInterferenze?)GestioneInterferenze.InterneAlCantiere)">Interne al cantiere</MudRadio>
+                <MudRadio T="GestioneInterferenze?" Value="@((GestioneInterferenze?)GestioneInterferenze.ConAreeEsterne)">Con aree esterne</MudRadio>
+            </MudRadioGroup>
+
+            <MudTextField T="string" Label="Note interferenze" Value="_interferenzeNote"
+                          ValueChanged="@((string? n) => _interferenzeNote = n)"
+                          Lines="3" Class="mt-2"
+                          Disabled="@(_interferenze is null or GestioneInterferenze.Nessuna)" />
+        </MudItem>
+    </MudGrid>
+
+    <MudStack Row="true" Justify="Justify.SpaceBetween" Class="mt-6">
+        <MudButton Variant="Variant.Text"
+                   StartIcon="@Icons.Material.Filled.ArrowBack"
+                   OnClick="OnBack">
+            Indietro
+        </MudButton>
+        <MudButton Variant="Variant.Filled" Color="Color.Primary"
+                   Disabled="@(!IsValid() || _saving)"
+                   OnClick="HandleSubmitAsync"
+                   EndIcon="@Icons.Material.Filled.ArrowForward">
+            Salva e prosegui
+        </MudButton>
+    </MudStack>
+</MudPaper>
+
+@code {
+    [Parameter, EditorRequired] public Verbale Existing { get; set; } = null!;
+    [Parameter] public EventCallback<Step2Submission> OnSubmit { get; set; }
+    [Parameter] public EventCallback OnBack { get; set; }
+
+    private bool _saving;
+    private EsitoVerifica? _esito;
+    private CondizioneMeteo? _meteo;
+    private int? _temperatura;
+    private GestioneInterferenze? _interferenze = GestioneInterferenze.Nessuna;
+    private string? _interferenzeNote;
+
+    protected override void OnInitialized()
+    {
+        _esito = Existing.Esito;
+        _meteo = Existing.Meteo;
+        _temperatura = Existing.TemperaturaCelsius;
+        _interferenze = Existing.Interferenze ?? GestioneInterferenze.Nessuna;
+        _interferenzeNote = Existing.InterferenzeNote;
+    }
+
+    private bool IsValid()
+        => _esito.HasValue && _meteo.HasValue;
+
+    private async Task HandleSubmitAsync()
+    {
+        if (!IsValid()) return;
+        _saving = true;
+        var submission = new Step2Submission(
+            _esito,
+            _meteo,
+            _temperatura,
+            _interferenze,
+            _interferenze is null or GestioneInterferenze.Nessuna ? null : _interferenzeNote);
+        await OnSubmit.InvokeAsync(submission);
+        _saving = false;
+    }
+
+    public sealed record Step2Submission(
+        EsitoVerifica? Esito,
+        CondizioneMeteo? Meteo,
+        int? TemperaturaCelsius,
+        GestioneInterferenze? Interferenze,
+        string? InterferenzeNote);
+}

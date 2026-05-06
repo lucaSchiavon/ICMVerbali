@@ -1,0 +1,55 @@
+@*
+    Header del wizard con 10 tondini numerati per le 10 sezioni del verbale
+    (vedi PDF). Il tondino corrispondente allo step corrente e' evidenziato,
+    quelli raggiungibili sono cliccabili (NavigateTo a /verbali/{id}/step/{n}),
+    quelli non ancora implementati restano grigi e disabilitati.
+
+    In B.8b sono raggiungibili solo gli step 1 e 2; in B.8c arriveranno 3-7,
+    in B.8d 8-10.
+*@
+
+<div class="wizard-stepper d-flex flex-wrap gap-2 mb-6">
+    @for (int i = 1; i <= TotalSteps; i++)
+    {
+        var stepNum = i;
+        var isCurrent = stepNum == CurrentStep;
+        var isReachable = ReachableSteps.Contains(stepNum) && VerbaleId.HasValue;
+        var label = StepLabels.TryGetValue(stepNum, out var l) ? l : $"Step {stepNum}";
+
+        <MudButton Variant="@(isCurrent ? Variant.Filled : Variant.Outlined)"
+                   Color="@(isCurrent ? Color.Primary : Color.Default)"
+                   Disabled="@(!isCurrent && !isReachable)"
+                   OnClick="@(() => OnStepClick(stepNum))"
+                   Class="step-pill"
+                   Size="Size.Small">
+            <MudText Typo="Typo.caption" Class="me-1"><strong>@stepNum</strong></MudText>
+            <MudText Typo="Typo.caption">@label</MudText>
+        </MudButton>
+    }
+</div>
+
+@code {
+    [Parameter, EditorRequired] public int CurrentStep { get; set; }
+    [Parameter] public int TotalSteps { get; set; } = 10;
+    [Parameter] public Guid? VerbaleId { get; set; }
+    [Parameter] public IReadOnlyList<int> ReachableSteps { get; set; } = Array.Empty<int>();
+    [Parameter] public EventCallback<int> StepRequested { get; set; }
+
+    // Etichette delle sezioni (sintetiche). Allineate al PDF Verbale_sicurezza.
+    private static readonly Dictionary<int, string> StepLabels = new()
+    {
+        [1] = "Anagrafica",
+        [2] = "Meteo / Esito",
+        [3] = "Attività",
+        [4] = "Documenti",
+        [5] = "Apprestamenti",
+        [6] = "Cond. ambientali",
+        [7] = "Interferenze",
+        [8] = "Prescrizioni",
+        [9] = "Foto",
+        [10] = "Riepilogo",
+    };
+
+    private Task OnStepClick(int step)
+        => StepRequested.InvokeAsync(step);
+}

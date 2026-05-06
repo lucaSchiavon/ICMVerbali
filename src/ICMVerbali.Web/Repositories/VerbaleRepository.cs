@@ -51,6 +51,29 @@ VALUES (@VerbaleId, @CatalogoTipoCondizioneAmbientaleId, @Conforme, @NonConforme
 INSERT INTO dbo.VerbaleAudit (Id, VerbaleId, UtenteId, DataEvento, EventoTipo, Note)
 VALUES (@Id, @VerbaleId, @UtenteId, @DataEvento, @EventoTipo, @Note);";
 
+    private const string SqlUpdateAnagrafica = @"
+UPDATE dbo.Verbale
+SET Data = @Data,
+    CantiereId = @CantiereId,
+    CommittenteId = @CommittenteId,
+    ImpresaAppaltatriceId = @ImpresaAppaltatriceId,
+    RlPersonaId = @RlPersonaId,
+    CspPersonaId = @CspPersonaId,
+    CsePersonaId = @CsePersonaId,
+    DlPersonaId = @DlPersonaId,
+    UpdatedAt = SYSUTCDATETIME()
+WHERE Id = @Id;";
+
+    private const string SqlUpdateMeteoEsito = @"
+UPDATE dbo.Verbale
+SET Esito = @Esito,
+    Meteo = @Meteo,
+    TemperaturaCelsius = @TemperaturaCelsius,
+    Interferenze = @Interferenze,
+    InterferenzeNote = @InterferenzeNote,
+    UpdatedAt = SYSUTCDATETIME()
+WHERE Id = @Id;";
+
     private const string SqlGetById = @"
 SELECT
     Id, Numero, Anno, Data,
@@ -153,6 +176,54 @@ ORDER BY v.UpdatedAt DESC;";
         await using var conn = await _factory.CreateOpenConnectionAsync(ct);
         return await conn.QuerySingleOrDefaultAsync<Verbale>(
             new CommandDefinition(SqlGetById, new { Id = id }, cancellationToken: ct));
+    }
+
+    public async Task UpdateAnagraficaAsync(
+        Guid id,
+        DateOnly data,
+        Guid cantiereId,
+        Guid committenteId,
+        Guid impresaAppaltatriceId,
+        Guid rlPersonaId,
+        Guid cspPersonaId,
+        Guid csePersonaId,
+        Guid dlPersonaId,
+        CancellationToken ct = default)
+    {
+        await using var conn = await _factory.CreateOpenConnectionAsync(ct);
+        await conn.ExecuteAsync(new CommandDefinition(SqlUpdateAnagrafica, new
+        {
+            Id = id,
+            Data = data,
+            CantiereId = cantiereId,
+            CommittenteId = committenteId,
+            ImpresaAppaltatriceId = impresaAppaltatriceId,
+            RlPersonaId = rlPersonaId,
+            CspPersonaId = cspPersonaId,
+            CsePersonaId = csePersonaId,
+            DlPersonaId = dlPersonaId,
+        }, cancellationToken: ct));
+    }
+
+    public async Task UpdateMeteoEsitoAsync(
+        Guid id,
+        Entities.Enums.EsitoVerifica? esito,
+        Entities.Enums.CondizioneMeteo? meteo,
+        int? temperaturaCelsius,
+        Entities.Enums.GestioneInterferenze? interferenze,
+        string? interferenzeNote,
+        CancellationToken ct = default)
+    {
+        await using var conn = await _factory.CreateOpenConnectionAsync(ct);
+        await conn.ExecuteAsync(new CommandDefinition(SqlUpdateMeteoEsito, new
+        {
+            Id = id,
+            Esito = esito,
+            Meteo = meteo,
+            TemperaturaCelsius = temperaturaCelsius,
+            Interferenze = interferenze,
+            InterferenzeNote = interferenzeNote,
+        }, cancellationToken: ct));
     }
 
     public async Task<IReadOnlyList<VerbaleListItem>> GetByDataAsync(DateOnly data, CancellationToken ct = default)

@@ -1,0 +1,215 @@
+@*
+    Step 1 del wizard: anagrafica del verbale (Sez. 1 del PDF).
+    - DatePicker per la data del sopralluogo
+    - 3 picker per cantiere / committente / impresa appaltatrice
+    - 4 picker per le figure di legge: RL, CSP, CSE, DL
+
+    Il componente carica le liste attive on-init dai 4 manager. Validazione
+    obbligatoria su tutti i campi: il bottone Avanti resta disabilitato finche'
+    non sono valorizzati. Espone OnSubmit(Step1Submission) e OnCancel.
+
+    Il salvataggio (creazione bozza o update) e' responsabilita' del wizard
+    parent: questo componente e' "puro" dal punto di vista della persistenza.
+*@
+
+@using ICMVerbali.Web.Components.Shared
+@using ICMVerbali.Web.Entities
+@using ICMVerbali.Web.Managers.Interfaces
+
+@inject ICantiereManager CantiereManager
+@inject ICommittenteManager CommittenteManager
+@inject IImpresaAppaltatriceManager ImpresaManager
+@inject IPersonaManager PersonaManager
+
+<MudPaper Class="pa-6" Elevation="1">
+    <MudText Typo="Typo.h6" GutterBottom="true">Sezione 1 — Anagrafica</MudText>
+
+    @if (_loading)
+    {
+        <MudProgressLinear Indeterminate="true" Class="my-4" />
+    }
+    else
+    {
+        <MudGrid>
+            <MudItem xs="12" md="4">
+                <MudDatePicker Label="Data sopralluogo"
+                               Date="_data"
+                               DateChanged="@(d => _data = d)"
+                               Required="true"
+                               RequiredError="Data obbligatoria."
+                               DateFormat="dd/MM/yyyy" />
+            </MudItem>
+
+            <MudItem xs="12" md="8">
+                <AnagraficaPicker T="Cantiere"
+                                  Items="_cantieri"
+                                  Value="_cantiere"
+                                  ValueChanged="@((Cantiere? c) => _cantiere = c)"
+                                  Label="Cantiere"
+                                  Required="true"
+                                  ToStringFunc="@(c => $"{c.Ubicazione} ({c.Tipologia})")" />
+            </MudItem>
+
+            <MudItem xs="12" md="6">
+                <AnagraficaPicker T="Committente"
+                                  Items="_committenti"
+                                  Value="_committente"
+                                  ValueChanged="@((Committente? c) => _committente = c)"
+                                  Label="Committente"
+                                  Required="true"
+                                  ToStringFunc="@(c => c.RagioneSociale)" />
+            </MudItem>
+
+            <MudItem xs="12" md="6">
+                <AnagraficaPicker T="ImpresaAppaltatrice"
+                                  Items="_imprese"
+                                  Value="_impresa"
+                                  ValueChanged="@((ImpresaAppaltatrice? i) => _impresa = i)"
+                                  Label="Impresa appaltatrice"
+                                  Required="true"
+                                  ToStringFunc="@(i => i.RagioneSociale)" />
+            </MudItem>
+
+            <MudItem xs="12">
+                <MudDivider Class="my-4" />
+                <MudText Typo="Typo.subtitle2" Class="mb-2">Figure di legge</MudText>
+            </MudItem>
+
+            <MudItem xs="12" md="6">
+                <AnagraficaPicker T="Persona"
+                                  Items="_persone"
+                                  Value="_rl"
+                                  ValueChanged="@((Persona? p) => _rl = p)"
+                                  Label="Responsabile Lavori (RL)"
+                                  Required="true"
+                                  ToStringFunc="@(p => $"{p.Nominativo} — {p.Azienda}")" />
+            </MudItem>
+            <MudItem xs="12" md="6">
+                <AnagraficaPicker T="Persona"
+                                  Items="_persone"
+                                  Value="_csp"
+                                  ValueChanged="@((Persona? p) => _csp = p)"
+                                  Label="Coord. Sicurezza Progettazione (CSP)"
+                                  Required="true"
+                                  ToStringFunc="@(p => $"{p.Nominativo} — {p.Azienda}")" />
+            </MudItem>
+            <MudItem xs="12" md="6">
+                <AnagraficaPicker T="Persona"
+                                  Items="_persone"
+                                  Value="_cse"
+                                  ValueChanged="@((Persona? p) => _cse = p)"
+                                  Label="Coord. Sicurezza Esecuzione (CSE)"
+                                  Required="true"
+                                  ToStringFunc="@(p => $"{p.Nominativo} — {p.Azienda}")" />
+            </MudItem>
+            <MudItem xs="12" md="6">
+                <AnagraficaPicker T="Persona"
+                                  Items="_persone"
+                                  Value="_dl"
+                                  ValueChanged="@((Persona? p) => _dl = p)"
+                                  Label="Direttore Lavori (DL)"
+                                  Required="true"
+                                  ToStringFunc="@(p => $"{p.Nominativo} — {p.Azienda}")" />
+            </MudItem>
+        </MudGrid>
+
+        <MudStack Row="true" Justify="Justify.SpaceBetween" Class="mt-6">
+            <MudButton Variant="Variant.Text" OnClick="OnCancel">Annulla</MudButton>
+            <MudButton Variant="Variant.Filled" Color="Color.Primary"
+                       Disabled="@(!IsValid() || _saving)"
+                       OnClick="HandleSubmitAsync"
+                       EndIcon="@Icons.Material.Filled.ArrowForward">
+                @(IsCreate ? "Crea bozza e prosegui" : "Salva e prosegui")
+            </MudButton>
+        </MudStack>
+    }
+</MudPaper>
+
+@code {
+    [Parameter] public Verbale? Existing { get; set; }
+    [Parameter] public EventCallback<Step1Submission> OnSubmit { get; set; }
+    [Parameter] public EventCallback OnCancel { get; set; }
+
+    private bool _loading = true;
+    private bool _saving;
+
+    private IReadOnlyList<Cantiere> _cantieri = Array.Empty<Cantiere>();
+    private IReadOnlyList<Committente> _committenti = Array.Empty<Committente>();
+    private IReadOnlyList<ImpresaAppaltatrice> _imprese = Array.Empty<ImpresaAppaltatrice>();
+    private IReadOnlyList<Persona> _persone = Array.Empty<Persona>();
+
+    private DateTime? _data = DateTime.Today;
+    private Cantiere? _cantiere;
+    private Committente? _committente;
+    private ImpresaAppaltatrice? _impresa;
+    private Persona? _rl;
+    private Persona? _csp;
+    private Persona? _cse;
+    private Persona? _dl;
+
+    private bool IsCreate => Existing is null;
+
+    protected override async Task OnInitializedAsync()
+    {
+        var cantTask = CantiereManager.ListaAttiviAsync();
+        var cmtTask = CommittenteManager.ListaAttiviAsync();
+        var impTask = ImpresaManager.ListaAttiviAsync();
+        var persTask = PersonaManager.ListaAttiveAsync();
+        await Task.WhenAll(cantTask, cmtTask, impTask, persTask);
+        _cantieri = cantTask.Result;
+        _committenti = cmtTask.Result;
+        _imprese = impTask.Result;
+        _persone = persTask.Result;
+
+        if (Existing is not null)
+        {
+            _data = Existing.Data.ToDateTime(TimeOnly.MinValue);
+            _cantiere = _cantieri.FirstOrDefault(c => c.Id == Existing.CantiereId);
+            _committente = _committenti.FirstOrDefault(c => c.Id == Existing.CommittenteId);
+            _impresa = _imprese.FirstOrDefault(i => i.Id == Existing.ImpresaAppaltatriceId);
+            _rl = _persone.FirstOrDefault(p => p.Id == Existing.RlPersonaId);
+            _csp = _persone.FirstOrDefault(p => p.Id == Existing.CspPersonaId);
+            _cse = _persone.FirstOrDefault(p => p.Id == Existing.CsePersonaId);
+            _dl = _persone.FirstOrDefault(p => p.Id == Existing.DlPersonaId);
+        }
+
+        _loading = false;
+    }
+
+    private bool IsValid()
+        => _data.HasValue
+            && _cantiere is not null
+            && _committente is not null
+            && _impresa is not null
+            && _rl is not null
+            && _csp is not null
+            && _cse is not null
+            && _dl is not null;
+
+    private async Task HandleSubmitAsync()
+    {
+        if (!IsValid()) return;
+        _saving = true;
+        var submission = new Step1Submission(
+            DateOnly.FromDateTime(_data!.Value),
+            _cantiere!.Id,
+            _committente!.Id,
+            _impresa!.Id,
+            _rl!.Id,
+            _csp!.Id,
+            _cse!.Id,
+            _dl!.Id);
+        await OnSubmit.InvokeAsync(submission);
+        _saving = false;
+    }
+
+    public sealed record Step1Submission(
+        DateOnly Data,
+        Guid CantiereId,
+        Guid CommittenteId,
+        Guid ImpresaId,
+        Guid RlId,
+        Guid CspId,
+        Guid CseId,
+        Guid DlId);
+}

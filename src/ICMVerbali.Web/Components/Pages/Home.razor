@@ -36,7 +36,9 @@
                             <MudList T="VerbaleListItem" Dense="true">
                                 @foreach (var v in _verbaliOggi)
                                 {
-                                    <MudListItem T="VerbaleListItem" Icon="@Icons.Material.Filled.Description">
+                                    var id = v.Id;
+                                    <MudListItem T="VerbaleListItem" Icon="@Icons.Material.Filled.Description"
+                                                 OnClick="@(() => OpenWizard(id))">
                                         <MudText Typo="Typo.body1">
                                             <strong>@FormatNumero(v)</strong> — @v.CantiereUbicazione
                                         </MudText>
@@ -66,7 +68,9 @@
                             <MudList T="VerbaleListItem" Dense="true">
                                 @foreach (var v in _bozze)
                                 {
-                                    <MudListItem T="VerbaleListItem" Icon="@Icons.Material.Filled.EditNote">
+                                    var id = v.Id;
+                                    <MudListItem T="VerbaleListItem" Icon="@Icons.Material.Filled.EditNote"
+                                                 OnClick="@(() => OpenWizard(id))">
                                         <MudText Typo="Typo.body1">
                                             <strong>@v.CantiereUbicazione</strong>
                                         </MudText>
@@ -105,6 +109,9 @@
         _bozze = bozzeTask.Result;
         _loading = false;
     }
+
+    private void OpenWizard(Guid verbaleId)
+        => Nav.NavigateTo($"/verbali/{verbaleId}/step/1");
 
     private static string FormatNumero(VerbaleListItem v)
         => v.Numero.HasValue && v.Anno.HasValue

@@ -133,6 +133,30 @@ public sealed class VerbaleManager : IVerbaleManager
     public Task<Verbale?> GetAsync(Guid id, CancellationToken ct = default)
         => _repo.GetByIdAsync(id, ct);
 
+    public Task UpdateAnagraficaAsync(
+        Guid id,
+        DateOnly data,
+        Guid cantiereId,
+        Guid committenteId,
+        Guid impresaAppaltatriceId,
+        Guid rlPersonaId,
+        Guid cspPersonaId,
+        Guid csePersonaId,
+        Guid dlPersonaId,
+        CancellationToken ct = default)
+        => _repo.UpdateAnagraficaAsync(id, data, cantiereId, committenteId, impresaAppaltatriceId,
+            rlPersonaId, cspPersonaId, csePersonaId, dlPersonaId, ct);
+
+    public Task UpdateMeteoEsitoAsync(
+        Guid id,
+        EsitoVerifica? esito,
+        CondizioneMeteo? meteo,
+        int? temperaturaCelsius,
+        GestioneInterferenze? interferenze,
+        string? interferenzeNote,
+        CancellationToken ct = default)
+        => _repo.UpdateMeteoEsitoAsync(id, esito, meteo, temperaturaCelsius, interferenze, interferenzeNote, ct);
+
     public Task<IReadOnlyList<VerbaleListItem>> GetVerbaliDelGiornoAsync(DateOnly data, CancellationToken ct = default)
         => _repo.GetByDataAsync(data, ct);
 

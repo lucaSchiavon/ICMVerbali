@@ -20,7 +20,7 @@
                  Value="Value"
                  ValueChanged="HandleValueChanged"
                  SearchFunc="SearchAsync"
-                 ToStringFunc="ToStringFunc"
+                 ToStringFunc="@(item => item is null ? string.Empty : ToStringFunc(item))"
                  Label="@Label"
                  Required="Required"
                  RequiredError="@RequiredError"

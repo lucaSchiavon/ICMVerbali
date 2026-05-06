@@ -1,0 +1,155 @@
+@page "/verbali/nuovo"
+@page "/verbali/{Id:guid}/step/{Step:int}"
+@attribute [Authorize]
+@rendermode InteractiveServer
+
+@using System.Security.Claims
+@using ICMVerbali.Web.Components.Shared
+@using ICMVerbali.Web.Entities
+@using ICMVerbali.Web.Managers.Interfaces
+
+@inject IVerbaleManager VerbaleManager
+@inject NavigationManager Nav
+@inject ISnackbar Snackbar
+
+<PageTitle>Wizard verbale — ICMVerbali</PageTitle>
+
+<MudContainer MaxWidth="MaxWidth.Large" Class="mt-6">
+    <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween" Class="mb-4">
+        <MudText Typo="Typo.h5">
+            @(_verbale is null ? "Nuovo verbale" : $"Verbale {(_verbale.Numero.HasValue ? $"N. {_verbale.Numero}/{_verbale.Anno}" : "(bozza)")}")
+        </MudText>
+        <MudButton Variant="Variant.Text" Href="/" StartIcon="@Icons.Material.Filled.Home">Home</MudButton>
+    </MudStack>
+
+    <WizardStepper CurrentStep="_currentStep"
+                   VerbaleId="_verbale?.Id"
+                   ReachableSteps="_reachableSteps"
+                   StepRequested="HandleStepClickAsync" />
+
+    @if (_loading)
+    {
+        <MudProgressLinear Indeterminate="true" Class="my-6" />
+    }
+    else if (_currentStep == 1)
+    {
+        <WizardStep1Anagrafica Existing="_verbale"
+                               OnSubmit="HandleStep1SubmitAsync"
+                               OnCancel="HandleCancelAsync" />
+    }
+    else if (_currentStep == 2 && _verbale is not null)
+    {
+        <WizardStep2Meteo Existing="_verbale"
+                          OnSubmit="HandleStep2SubmitAsync"
+                          OnBack="@(() => GoToStep(1))" />
+    }
+    else
+    {
+        <MudPaper Class="pa-6" Elevation="1">
+            <MudAlert Severity="Severity.Info" Variant="Variant.Outlined">
+                Sezione @_currentStep — Wizard step in costruzione (B.8c / B.8d).
+            </MudAlert>
+            <MudButton Variant="Variant.Text" Class="mt-4"
+                       StartIcon="@Icons.Material.Filled.ArrowBack"
+                       OnClick="@(() => GoToStep(_currentStep - 1))">
+                Indietro
+            </MudButton>
+        </MudPaper>
+    }
+</MudContainer>
+
+@code {
+    [Parameter] public Guid? Id { get; set; }
+    [Parameter] public int Step { get; set; } = 1;
+
+    [CascadingParameter] private Task<AuthenticationState> AuthStateTask { get; set; } = null!;
+
+    private Verbale? _verbale;
+    private int _currentStep = 1;
+    private bool _loading = true;
+
+    // In B.8b sono raggiungibili solo gli step 1 e 2 di un verbale esistente.
+    // B.8c estende fino a 7, B.8d fino a 10.
+    private static readonly IReadOnlyList<int> _reachableSteps = new[] { 1, 2 };
+
+    protected override async Task OnParametersSetAsync()
+    {
+        _loading = true;
+        _currentStep = Step <= 0 ? 1 : Step;
+
+        if (Id.HasValue)
+        {
+            _verbale = await VerbaleManager.GetAsync(Id.Value);
+            if (_verbale is null)
+            {
+                Snackbar.Add("Verbale non trovato.", Severity.Error);
+                Nav.NavigateTo("/");
+                return;
+            }
+        }
+        else
+        {
+            // Modalita' creazione: nessun verbale ancora; forziamo step = 1.
+            _verbale = null;
+            _currentStep = 1;
+        }
+
+        _loading = false;
+    }
+
+    private async Task HandleStep1SubmitAsync(WizardStep1Anagrafica.Step1Submission s)
+    {
+        if (_verbale is null)
+        {
+            // Creazione: prendiamo l'utente dal cookie auth e creiamo la bozza.
+            var auth = await AuthStateTask;
+            var utenteIdStr = auth.User.FindFirstValue(ClaimTypes.NameIdentifier);
+            if (!Guid.TryParse(utenteIdStr, out var utenteId))
+            {
+                Snackbar.Add("Utente non identificato. Effettua di nuovo il login.", Severity.Error);
+                return;
+            }
+
+            var nuovo = await VerbaleManager.CreaBozzaAsync(
+                s.Data, s.CantiereId, s.CommittenteId, s.ImpresaId,
+                s.RlId, s.CspId, s.CseId, s.DlId, utenteId);
+
+            Snackbar.Add("Bozza creata.", Severity.Success);
+            Nav.NavigateTo($"/verbali/{nuovo.Id}/step/2");
+        }
+        else
+        {
+            await VerbaleManager.UpdateAnagraficaAsync(
+                _verbale.Id, s.Data, s.CantiereId, s.CommittenteId, s.ImpresaId,
+                s.RlId, s.CspId, s.CseId, s.DlId);
+
+            Snackbar.Add("Anagrafica aggiornata.", Severity.Success);
+            Nav.NavigateTo($"/verbali/{_verbale.Id}/step/2");
+        }
+    }
+
+    private async Task HandleStep2SubmitAsync(WizardStep2Meteo.Step2Submission s)
+    {
+        if (_verbale is null) return;
+        await VerbaleManager.UpdateMeteoEsitoAsync(
+            _verbale.Id, s.Esito, s.Meteo, s.TemperaturaCelsius, s.Interferenze, s.InterferenzeNote);
+
+        Snackbar.Add("Esito e meteo salvati.", Severity.Success);
+        Nav.NavigateTo($"/verbali/{_verbale.Id}/step/3");
+    }
+
+    private void HandleCancelAsync() => Nav.NavigateTo("/");
+
+    private void GoToStep(int step)
+    {
+        if (step < 1) step = 1;
+        if (_verbale is null) return; // in creazione non si naviga
+        Nav.NavigateTo($"/verbali/{_verbale.Id}/step/{step}");
+    }
+
+    private Task HandleStepClickAsync(int step)
+    {
+        GoToStep(step);
+        return Task.CompletedTask;
+    }
+}
