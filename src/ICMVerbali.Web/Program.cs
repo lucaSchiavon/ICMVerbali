@@ -51,6 +51,7 @@ builder.Services.AddScoped<ICatalogoTipoDocumentoRepository, CatalogoTipoDocumen
 builder.Services.AddScoped<ICatalogoTipoApprestamentoRepository, CatalogoTipoApprestamentoRepository>();
 builder.Services.AddScoped<ICatalogoTipoCondizioneAmbientaleRepository, CatalogoTipoCondizioneAmbientaleRepository>();
 builder.Services.AddScoped<IVerbaleRepository, VerbaleRepository>();
+builder.Services.AddScoped<IFotoRepository, FotoRepository>();
 
 // Manager. Lifetime Scoped (1:1 con Repository).
 builder.Services.AddScoped<ICantiereManager, CantiereManager>();
@@ -63,6 +64,7 @@ builder.Services.AddScoped<ICatalogoTipoDocumentoManager, CatalogoTipoDocumentoM
 builder.Services.AddScoped<ICatalogoTipoApprestamentoManager, CatalogoTipoApprestamentoManager>();
 builder.Services.AddScoped<ICatalogoTipoCondizioneAmbientaleManager, CatalogoTipoCondizioneAmbientaleManager>();
 builder.Services.AddScoped<IVerbaleManager, VerbaleManager>();
+builder.Services.AddScoped<IFotoManager, FotoManager>();
 
 // Authentication (cookie) + authorization. Vedi docs/01-design.md §4.
 builder.Services
@@ -164,6 +166,37 @@ app.MapPost("/auth/logout", async (HttpContext ctx) =>
     await ctx.SignOutAsync(CookieAuthenticationDefaults.AuthenticationScheme);
     return Results.Redirect("/login");
 });
+
+// Endpoint serving foto: full-size e thumb. RequireAuthorization() garantisce
+// che solo utenti autenticati accedano (vedi docs/01-design.md §7). Una ACL
+// piu' fine "puoi vedere solo i verbali del tuo cantiere" arrivera' in B.10+
+// quando definiremo le visibility rules.
+app.MapGet("/api/foto/{id:guid}", async (
+    Guid id,
+    IFotoRepository repo,
+    IFotoStorageService storage,
+    CancellationToken ct) =>
+{
+    var foto = await repo.GetByIdAsync(id, ct);
+    if (foto is null) return Results.NotFound();
+
+    var stream = await storage.ApriLetturaAsync(foto.FilePathRelativo, ct);
+    return Results.File(stream, "image/jpeg", enableRangeProcessing: false);
+}).RequireAuthorization();
+
+app.MapGet("/api/foto/{id:guid}/thumb", async (
+    Guid id,
+    IFotoRepository repo,
+    IFotoStorageService storage,
+    CancellationToken ct) =>
+{
+    var foto = await repo.GetByIdAsync(id, ct);
+    if (foto is null) return Results.NotFound();
+
+    var thumbPath = storage.GetThumbPathRelativo(foto.FilePathRelativo);
+    var stream = await storage.ApriLetturaAsync(thumbPath, ct);
+    return Results.File(stream, "image/jpeg", enableRangeProcessing: false);
+}).RequireAuthorization();
 
 app.Run();
 

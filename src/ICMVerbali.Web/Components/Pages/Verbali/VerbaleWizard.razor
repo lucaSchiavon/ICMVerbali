@@ -82,7 +82,8 @@
     }
     else if (_currentStep == 9 && _verbale is not null)
     {
-        <WizardStep9Foto OnSubmit="HandleStep9SubmitAsync"
+        <WizardStep9Foto VerbaleId="_verbale.Id"
+                         OnSubmit="HandleStep9SubmitAsync"
                          OnBack="@(() => GoToStep(8))" />
     }
     else if (_currentStep == 10 && _verbale is not null)

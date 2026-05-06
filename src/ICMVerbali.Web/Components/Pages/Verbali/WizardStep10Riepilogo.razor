@@ -18,6 +18,7 @@
 @inject ICommittenteManager CommittenteManager
 @inject IImpresaAppaltatriceManager ImpresaManager
 @inject IPersonaManager PersonaManager
+@inject IFotoManager FotoManager
 
 <MudPaper Class="pa-6" Elevation="1">
     <MudText Typo="Typo.h6" GutterBottom="true">Sezione 10 — Riepilogo del verbale</MudText>
@@ -203,7 +204,29 @@
         @* --- 9. Foto -------------------------------------------------------- *@
         <MudPaper Class="pa-4 my-3" Outlined="true">
             <MudText Typo="Typo.subtitle1" Class="mb-2"><strong>9. Foto</strong></MudText>
-            <MudText Typo="Typo.body2" Class="text-disabled">Galleria foto disponibile in B.9.</MudText>
+            @if (_foto.Count == 0)
+            {
+                <MudText Typo="Typo.body2" Class="text-disabled">Nessuna foto allegata.</MudText>
+            }
+            else
+            {
+                <MudGrid Spacing="1">
+                    @foreach (var f in _foto)
+                    {
+                        <MudItem xs="6" sm="4" md="3" @key="f.Id">
+                            <div style="position: relative; width: 100%; aspect-ratio: 1/1; overflow: hidden; background: var(--mud-palette-background-grey);">
+                                <img src="@($"/api/foto/{f.Id}/thumb")"
+                                     alt="@(f.Didascalia ?? $"Foto {f.Ordine}")"
+                                     style="width: 100%; height: 100%; object-fit: cover; display: block;" />
+                            </div>
+                            @if (!string.IsNullOrWhiteSpace(f.Didascalia))
+                            {
+                                <MudText Typo="Typo.caption" Class="d-block mt-1">@f.Didascalia</MudText>
+                            }
+                        </MudItem>
+                    }
+                </MudGrid>
+            }
         </MudPaper>
 
         @* --- Azioni -------------------------------------------------------- *@
@@ -244,6 +267,7 @@
     private IReadOnlyList<VerbaleApprestamentoItem> _apprestamenti = Array.Empty<VerbaleApprestamentoItem>();
     private IReadOnlyList<VerbaleCondizioneAmbientaleItem> _condizioni = Array.Empty<VerbaleCondizioneAmbientaleItem>();
     private IReadOnlyList<PrescrizioneCse> _prescrizioni = Array.Empty<PrescrizioneCse>();
+    private IReadOnlyList<Foto> _foto = Array.Empty<Foto>();
 
     protected override async Task OnInitializedAsync()
     {
@@ -260,11 +284,12 @@
         var apprestamentiTask = VerbaleManager.GetApprestamentiAsync(Existing.Id);
         var condizioniTask = VerbaleManager.GetCondizioniAsync(Existing.Id);
         var prescrizioniTask = VerbaleManager.GetPrescrizioniAsync(Existing.Id);
+        var fotoTask = FotoManager.GetByVerbaleAsync(Existing.Id);
 
         await Task.WhenAll(
             cantiereTask, committenteTask, impresaTask,
             rlTask, cspTask, cseTask, dlTask,
-            attivitaTask, documentiTask, apprestamentiTask, condizioniTask, prescrizioniTask);
+            attivitaTask, documentiTask, apprestamentiTask, condizioniTask, prescrizioniTask, fotoTask);
 
         _cantiere = cantiereTask.Result;
         _committente = committenteTask.Result;
@@ -278,6 +303,7 @@
         _apprestamenti = apprestamentiTask.Result;
         _condizioni = condizioniTask.Result;
         _prescrizioni = prescrizioniTask.Result;
+        _foto = fotoTask.Result;
 
         _loading = false;
     }

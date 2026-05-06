@@ -1,35 +1,336 @@
 @*
-    Step 9 del wizard: galleria foto della verifica (Sez. 9 PDF).
-    In B.8d e' un placeholder: l'upload reale + persistenza via IFotoStorageService
-    arrivera' nella sotto-fase B.9.
+    Step 9 del wizard: galleria foto della verifica (Sez. 9 PDF). UX target:
+    smartphone in cantiere. Bottone full-width "Aggiungi foto" che apre il
+    bottom-sheet nativo iOS/Android (camera + galleria + file). Optimistic UI:
+    le card placeholder compaiono subito con spinner mentre l'upload + resize
+    + thumb generation girano in background. Riordino con ↑ ↓ (drag-and-drop
+    su mobile e' impreciso). Auto-save su blur per la didascalia.
 *@
 
+@using ICMVerbali.Web.Entities
+@using ICMVerbali.Web.Managers.Interfaces
+@using Microsoft.AspNetCore.Components.Forms
+
+@inject IFotoManager FotoManager
+@inject IDialogService DialogService
+@inject ISnackbar Snackbar
+
 <MudPaper Class="pa-6" Elevation="1">
-    <MudText Typo="Typo.h6" GutterBottom="true">Sezione 9 — Foto della verifica</MudText>
-
-    <MudAlert Severity="Severity.Info" Variant="Variant.Outlined" Class="my-4">
-        <MudText>
-            <strong>In costruzione (B.9).</strong> L'upload e la gestione delle foto
-            (galleria, didascalie, riordino) sono pianificati per la prossima sotto-fase.
-            Per ora puoi proseguire al riepilogo.
-        </MudText>
-    </MudAlert>
-
-    <MudStack Row="true" Justify="Justify.SpaceBetween" Class="mt-6">
-        <MudButton Variant="Variant.Text"
-                   StartIcon="@Icons.Material.Filled.ArrowBack"
-                   OnClick="OnBack">
-            Indietro
-        </MudButton>
-        <MudButton Variant="Variant.Filled" Color="Color.Primary"
-                   OnClick="OnSubmit"
-                   EndIcon="@Icons.Material.Filled.ArrowForward">
-            Prosegui al riepilogo
-        </MudButton>
+    <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween" Class="mb-2">
+        <MudText Typo="Typo.h6">Sezione 9 — Foto della verifica</MudText>
+        <AutoSaveBadge Status="_autoSaveStatus" />
     </MudStack>
+
+    @if (_loading)
+    {
+        <MudProgressLinear Indeterminate="true" Class="my-4" />
+    }
+    else
+    {
+        @* Due bottoni distinti: Android 13+ Photo Picker non offre l'opzione
+           fotocamera, quindi serve un input dedicato con capture="environment"
+           per aprire direttamente la camera, e un altro senza capture per la
+           galleria. Su iOS entrambi funzionano allo stesso modo. *@
+        <MudGrid Spacing="2" Class="mb-4">
+            <MudItem xs="6">
+                <MudFileUpload T="IBrowserFile"
+                               Accept="image/*"
+                               InputAttributes="@_captureAttributes"
+                               FilesChanged="HandleSingleFileAsync">
+                    <ActivatorContent>
+                        <MudButton HtmlTag="label"
+                                   Variant="Variant.Filled"
+                                   Color="Color.Primary"
+                                   StartIcon="@Icons.Material.Filled.PhotoCamera"
+                                   FullWidth="true"
+                                   Size="Size.Large">
+                            Scatta
+                        </MudButton>
+                    </ActivatorContent>
+                </MudFileUpload>
+            </MudItem>
+            <MudItem xs="6">
+                <MudFileUpload T="IReadOnlyList<IBrowserFile>"
+                               Accept="image/*"
+                               FilesChanged="HandleFilesAsync"
+                               MaximumFileCount="20">
+                    <ActivatorContent>
+                        <MudButton HtmlTag="label"
+                                   Variant="Variant.Outlined"
+                                   Color="Color.Primary"
+                                   StartIcon="@Icons.Material.Filled.PhotoLibrary"
+                                   FullWidth="true"
+                                   Size="Size.Large">
+                            Galleria
+                        </MudButton>
+                    </ActivatorContent>
+                </MudFileUpload>
+            </MudItem>
+        </MudGrid>
+
+        @if (_foto.Count == 0 && _uploads.Count == 0)
+        {
+            <MudAlert Severity="Severity.Info" Variant="Variant.Outlined" Class="my-4">
+                Nessuna foto. Premi "Scatta" per usare la fotocamera o "Galleria" per scegliere foto già presenti.
+            </MudAlert>
+        }
+
+        <MudGrid Spacing="2">
+            @* Card foto gia' caricate *@
+            @for (var i = 0; i < _foto.Count; i++)
+            {
+                var idx = i;
+                var foto = _foto[idx];
+                <MudItem xs="6" sm="4" md="3" @key="foto.Id">
+                    <MudPaper Class="pa-2" Outlined="true">
+                        <div style="position: relative; width: 100%; aspect-ratio: 1/1; overflow: hidden; background: var(--mud-palette-background-grey);">
+                            <img src="@($"/api/foto/{foto.Id}/thumb")"
+                                 alt="Foto @(idx + 1)"
+                                 style="width: 100%; height: 100%; object-fit: cover; display: block;" />
+                        </div>
+                        <MudTextField T="string"
+                                      Value="foto.Didascalia"
+                                      ValueChanged="@((string? d) => foto.Didascalia = d)"
+                                      OnBlur="@(_ => SaveDidascaliaAsync(foto))"
+                                      Label="Didascalia"
+                                      Variant="Variant.Outlined"
+                                      Margin="Margin.Dense"
+                                      Class="mt-2" />
+                        <MudStack Row="true" Justify="Justify.SpaceBetween" Class="mt-1">
+                            <MudIconButton Icon="@Icons.Material.Filled.ArrowUpward"
+                                           Size="Size.Small"
+                                           Disabled="@(idx == 0)"
+                                           OnClick="@(() => MoveUpAsync(idx))"
+                                           title="Sposta su" />
+                            <MudIconButton Icon="@Icons.Material.Filled.ArrowDownward"
+                                           Size="Size.Small"
+                                           Disabled="@(idx == _foto.Count - 1)"
+                                           OnClick="@(() => MoveDownAsync(idx))"
+                                           title="Sposta giu" />
+                            <MudIconButton Icon="@Icons.Material.Filled.Delete"
+                                           Size="Size.Small"
+                                           Color="Color.Error"
+                                           OnClick="@(() => DeleteAsync(foto))"
+                                           title="Elimina" />
+                        </MudStack>
+                    </MudPaper>
+                </MudItem>
+            }
+
+            @* Placeholder cards per upload in corso *@
+            @foreach (var up in _uploads)
+            {
+                <MudItem xs="6" sm="4" md="3" @key="up.ClientId">
+                    <MudPaper Class="pa-2" Outlined="true">
+                        <div style="position: relative; width: 100%; aspect-ratio: 1/1; display: flex; align-items: center; justify-content: center; background: var(--mud-palette-background-grey);">
+                            @if (up.Status == UploadStatus.InProgress)
+                            {
+                                <MudProgressCircular Indeterminate="true" />
+                            }
+                            else if (up.Status == UploadStatus.Failed)
+                            {
+                                <MudStack AlignItems="AlignItems.Center" Spacing="1">
+                                    <MudIcon Icon="@Icons.Material.Filled.ErrorOutline" Color="Color.Error" />
+                                    <MudButton Size="Size.Small"
+                                               Variant="Variant.Text"
+                                               OnClick="@(() => RetryAsync(up))"
+                                               StartIcon="@Icons.Material.Filled.Refresh">
+                                        Riprova
+                                    </MudButton>
+                                </MudStack>
+                            }
+                        </div>
+                        <MudText Typo="Typo.caption" Class="mt-2 d-block text-truncate">@up.FileName</MudText>
+                        @if (up.Status == UploadStatus.Failed && !string.IsNullOrEmpty(up.ErrorMessage))
+                        {
+                            <MudText Typo="Typo.caption" Color="Color.Error">@up.ErrorMessage</MudText>
+                        }
+                    </MudPaper>
+                </MudItem>
+            }
+        </MudGrid>
+
+        <MudStack Row="true" Justify="Justify.SpaceBetween" Class="mt-6">
+            <MudButton Variant="Variant.Text"
+                       StartIcon="@Icons.Material.Filled.ArrowBack"
+                       OnClick="OnBack">
+                Indietro
+            </MudButton>
+            <MudButton Variant="Variant.Filled" Color="Color.Primary"
+                       OnClick="OnSubmit"
+                       EndIcon="@Icons.Material.Filled.ArrowForward">
+                Prosegui al riepilogo
+            </MudButton>
+        </MudStack>
+    }
 </MudPaper>
 
 @code {
+    [Parameter, EditorRequired] public Guid VerbaleId { get; set; }
     [Parameter] public EventCallback OnSubmit { get; set; }
     [Parameter] public EventCallback OnBack { get; set; }
+
+    private bool _loading = true;
+    private AutoSaveStatus _autoSaveStatus = AutoSaveStatus.Idle;
+    private List<Foto> _foto = new();
+    private List<UploadItem> _uploads = new();
+
+    // capture="environment" forza l'apertura della fotocamera posteriore.
+    // Senza questo, su Android 13+ il browser delega al Photo Picker che
+    // non offre l'opzione camera. Su iOS l'attributo e' rispettato allo
+    // stesso modo (apre direttamente la camera).
+    private static readonly IReadOnlyDictionary<string, object> _captureAttributes =
+        new Dictionary<string, object> { ["capture"] = "environment" };
+
+    protected override async Task OnInitializedAsync()
+    {
+        var rows = await FotoManager.GetByVerbaleAsync(VerbaleId);
+        _foto = rows.ToList();
+        _loading = false;
+    }
+
+    // Galleria: 1..N file. Processati in serie per resilienza.
+    private Task HandleFilesAsync(IReadOnlyList<IBrowserFile>? files)
+        => ProcessIncomingAsync(files);
+
+    // Camera (capture="environment"): un solo file alla volta. Wrappa in lista
+    // e riusa la stessa pipeline.
+    private Task HandleSingleFileAsync(IBrowserFile? file)
+        => ProcessIncomingAsync(file is null ? null : new[] { file });
+
+    private async Task ProcessIncomingAsync(IReadOnlyList<IBrowserFile>? files)
+    {
+        if (files is null || files.Count == 0) return;
+
+        // Aggiungi placeholder cards subito (optimistic UI).
+        var newUploads = files.Select(f => new UploadItem
+        {
+            ClientId = Guid.NewGuid(),
+            BrowserFile = f,
+            FileName = f.Name,
+            Status = UploadStatus.InProgress,
+        }).ToList();
+        _uploads.AddRange(newUploads);
+        StateHasChanged();
+
+        foreach (var up in newUploads)
+        {
+            await ProcessUploadAsync(up);
+        }
+    }
+
+    private async Task ProcessUploadAsync(UploadItem up)
+    {
+        try
+        {
+            // OpenReadStream con cap a 15 MB (sopra i 15 MB il browser spedisce
+            // comunque in chunk via SignalR ma il manager rifiuta poi). Cap qui
+            // lo allarghiamo leggermente per dare margine al browser.
+            await using var stream = up.BrowserFile.OpenReadStream(
+                maxAllowedSize: 16L * 1024 * 1024);
+
+            var foto = await FotoManager.UploadAsync(
+                VerbaleId, stream, up.BrowserFile.Name, up.BrowserFile.Size);
+
+            _foto.Add(foto);
+            _uploads.Remove(up);
+            StateHasChanged();
+        }
+        catch (Exception ex)
+        {
+            up.Status = UploadStatus.Failed;
+            up.ErrorMessage = ex.Message.Length > 80 ? ex.Message[..80] + "…" : ex.Message;
+            StateHasChanged();
+        }
+    }
+
+    private async Task RetryAsync(UploadItem up)
+    {
+        up.Status = UploadStatus.InProgress;
+        up.ErrorMessage = null;
+        StateHasChanged();
+        await ProcessUploadAsync(up);
+    }
+
+    private async Task SaveDidascaliaAsync(Foto foto)
+    {
+        _autoSaveStatus = AutoSaveStatus.Saving;
+        StateHasChanged();
+        try
+        {
+            await FotoManager.UpdateDidascaliaAsync(foto.Id, foto.Didascalia);
+            _autoSaveStatus = AutoSaveStatus.Saved;
+        }
+        catch
+        {
+            _autoSaveStatus = AutoSaveStatus.Error;
+        }
+    }
+
+    private async Task MoveUpAsync(int idx)
+    {
+        if (idx <= 0 || idx >= _foto.Count) return;
+        (_foto[idx - 1], _foto[idx]) = (_foto[idx], _foto[idx - 1]);
+        await PersistOrderAsync();
+    }
+
+    private async Task MoveDownAsync(int idx)
+    {
+        if (idx < 0 || idx >= _foto.Count - 1) return;
+        (_foto[idx + 1], _foto[idx]) = (_foto[idx], _foto[idx + 1]);
+        await PersistOrderAsync();
+    }
+
+    private async Task PersistOrderAsync()
+    {
+        _autoSaveStatus = AutoSaveStatus.Saving;
+        StateHasChanged();
+        try
+        {
+            await FotoManager.ReorderAsync(VerbaleId, _foto.Select(f => f.Id).ToList());
+            _autoSaveStatus = AutoSaveStatus.Saved;
+        }
+        catch
+        {
+            _autoSaveStatus = AutoSaveStatus.Error;
+        }
+    }
+
+    private async Task DeleteAsync(Foto foto)
+    {
+        var confirm = await DialogService.ShowMessageBoxAsync(new MudBlazor.MessageBoxOptions
+        {
+            Title = "Eliminare la foto?",
+            Message = "Operazione non annullabile.",
+            YesText = "Elimina",
+            CancelText = "Annulla",
+        });
+        if (confirm != true) return;
+
+        try
+        {
+            await FotoManager.DeleteAsync(foto.Id);
+            _foto.Remove(foto);
+            Snackbar.Add("Foto eliminata.", Severity.Success);
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"Errore: {ex.Message}", Severity.Error);
+        }
+    }
+
+    private sealed class UploadItem
+    {
+        public Guid ClientId { get; set; }
+        public IBrowserFile BrowserFile { get; set; } = null!;
+        public string FileName { get; set; } = string.Empty;
+        public UploadStatus Status { get; set; }
+        public string? ErrorMessage { get; set; }
+    }
+
+    private enum UploadStatus
+    {
+        InProgress,
+        Failed,
+    }
 }
