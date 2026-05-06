@@ -925,6 +925,60 @@ Durante la scrittura delle entità sono emerse tre raffinature di naming che int
 
 ---
 
+## Addendum 2026-05-07 — B.9 upload foto + storage SkiaSharp
+
+**Lavori chiusi**: pipeline upload foto end-to-end (Sez. 9 PDF). `IFotoStorageService` da passthrough a vera elaborazione immagini con SkiaSharp; `IFotoRepository` + `IFotoManager`; endpoint Minimal API per servire full-size + thumbnail; UI dello step 9 sostituita dal placeholder con uploader reale (camera + galleria) + galleria con didascalia / riordino / delete; integrazione thumbnail nello step 10 riepilogo. `App_Data/uploads/` aggiunto a `.gitignore`.
+
+**NuGet aggiunto**: `SkiaSharp 3.119.2` (MIT, gia' approvato in §9.2).
+
+**Backend — storage (`LocalFotoStorageService`)**:
+- Pipeline `SalvaAsync` ora reale: decode con `SKCodec.Create` (preserva EXIF) -> `ApplyOrientation` per tutti gli 8 origin EXIF (smartphone tipicamente `RightTop` 90deg) -> `ResizeIfTooLarge` lato lungo 1920px -> encode JPEG q85 full + thumbnail 200x200 cover-crop q75. Strip EXIF di default (re-encode pulito).
+- Convenzione path: `verbali/{verbaleId}/{guid}.jpg` per il full, `verbali/{verbaleId}/{guid}.thumb.jpg` accanto. Esposto `GetThumbPathRelativo` per derivare il path del thumb senza salvarlo nel DB.
+- Difesa path-traversal: `ResolveAndValidate` rifiuta path assoluti o che escono da `_basePath`.
+
+**Backend — repository (`FotoRepository`)**:
+- `GetByVerbaleAsync` (ordered by `Ordine`), `GetByIdAsync`, `CreateAsync` con `Ordine = max+1` calcolato in transazione (concorrenza-safe), `UpdateDidascaliaAsync`, `DeleteAsync` (ritorna il `FilePathRelativo` per cleanup fs), `UpdateOrdineBulkAsync` (UPDATE multipla via Dapper IEnumerable + bump `UpdatedAt` su Verbale, transazionale).
+
+**Backend — manager (`FotoManager`)**:
+- Validazione: max 15 MB pre-elaborazione, estensioni allowlist (`.jpg`, `.jpeg`, `.png`, `.webp`, `.heic`, `.heif`).
+- `UploadAsync`: invoca lo storage (resize + thumb) -> repo `CreateAsync` -> rilegge la foto con `Ordine`/`CreatedAt` valorizzati dal DB.
+- `DeleteAsync`: ordine "DB prima, fs dopo". Se il file delete fallisce, log silenzioso e riga DB gia' rimossa (file orfano accettabile, GC futuro in B.10+).
+- `ReorderAsync`: UI passa `IReadOnlyList<Guid>` nell'ordine desiderato, manager rinumera `Ordine` 1..N.
+
+**Endpoint serving**:
+- `GET /api/foto/{id}` (full-size JPEG) e `GET /api/foto/{id}/thumb` (thumb JPEG). Entrambi `RequireAuthorization()`. Il thumb path e' derivato lato server da `GetThumbPathRelativo`, non passato dalla UI. ACL fine "puoi vedere solo i verbali del tuo cantiere" rinviata a B.10+.
+
+**UI — step 9 (`WizardStep9Foto.razor`)**:
+- **Due bottoni distinti** (📷 Scatta + 🖼 Galleria) anziche' uno solo. Motivo: Android 13+ Photo Picker (HyperOS, MIUI ecc.) per `accept="image/*"` mostra solo le foto della galleria, **niente opzione fotocamera** (Google ha separato i flussi nel nuovo picker). Su iOS Safari il bottom-sheet "Take Photo / Library / Choose File" funziona, ma per uniformita' i due bottoni separati sono robusti su entrambi.
+- Implementazione con `<InputFile>` di `Microsoft.AspNetCore.Components.Forms` (non `MudFileUpload`): `MudFileUpload.ActivatorContent` in MudBlazor 9.4 ignorava il render fragment custom e mostrava il "BROWSE FILES" default — pivotato a `<InputFile id="..." style="display:none;">` + `<MudButton HtmlTag="label" for="...">` che funge da activator stilizzato.
+- Camera input: `accept="image/*" capture="environment"` -> apre direttamente la fotocamera posteriore. Galleria input: `accept="image/*" multiple` -> Photo Picker / multi-select.
+- Optimistic UI: card placeholder con `MudProgressCircular` immediatamente, sostituita dal thumbnail `<img src="/api/foto/{id}/thumb">` quando upload + processing completano. Resilienza: upload **serializzato** un file alla volta (`foreach`), card fallita mostra ⚠ + bottone "Riprova" senza bloccare le altre.
+- Didascalia: `MudTextField` con auto-save su blur (riusa il pattern `AutoSaveBadge`).
+- Pulsanti per card: ↑ ↓ 🗑 (delete con `IDialogService.ShowMessageBoxAsync` di conferma). Riordino tramite `ReorderAsync(verbaleId, ids)` invece di drag-and-drop (impreciso su mobile).
+- Logging diagnostico compatto: una riga per file in arrivo con `source=camera|galleria`, `name`, `size`, `ContentType`. Tenuto come audit per future verifiche cross-device (iPhone, browser diversi).
+
+**UI — step 10 (`WizardStep10Riepilogo.razor`)**:
+- Sez. 9 ora mostra la **galleria thumbnail reale** (read-only, grid 2/4/6 colonne, ogni thumb con didascalia sotto se presente). Sostituisce il "placeholder galleria foto disponibile in B.9".
+
+**Configurazione + filesystem**:
+- `appsettings.json` aveva gia' `Storage:UploadsBasePath` = `App_Data/uploads` (relativo a `ContentRoot`). Confermato come default.
+- `.gitignore` esteso con `src/ICMVerbali.Web/App_Data/`. 18 file `.jpg`/`.thumb.jpg` gia' tracked (residuo da test live precedenti) rimossi dall'index con `git rm --cached -r` — file mantenuti su disco. App_Data e' user data, non source.
+- **Profilo `lan` in `launchSettings.json`** (gia' aggiunto durante test live B.9): `applicationUrl = "http://0.0.0.0:5192"`, `launchBrowser = false`. Necessario per raggiungere l'app dallo smartphone via IP locale (`http://<ip-pc>:5192`). I profili `http`/`https` restano localhost-only.
+
+**Decisione di design — due bottoni vs uno**: il pattern "un solo bottone che apre il bottom-sheet OS" funziona su iOS ma **non su Android 13+** dove Google ha sostituito il chooser legacy con il Photo Picker (solo galleria). I due bottoni sono il pattern usato anche da Instagram, WhatsApp Web, Dropbox, ecc. — costo minimo, garanzia di funzionamento cross-platform.
+
+**Decisione di design — `<InputFile>` diretto vs `MudFileUpload`**: `MudFileUpload.ActivatorContent` (parametro `RenderFragment` documentato in MudBlazor 9.x) non rendeva il custom button in pratica — l'analyzer emette `RZ10012` ("unexpected name 'ActivatorContent'") e `MUD0002` (`ChildContent` illegale). Il default "BROWSE FILES" appariva al posto del button custom. Bypass diretto a `<InputFile>` + label-for: piu' codice (~10 righe) ma comportamento prevedibile e zero analyzer warning.
+
+**Decisione di design — `capture="environment"` vs WebRTC `getUserMedia`**: scelto `capture` (più semplice, riusa l'app camera dell'OS, niente HTTPS-only, niente JS). `getUserMedia` (live stream camera nella pagina) sara' valutato solo se emergeranno blocking issue cross-device.
+
+**Decisione di design — HEIC**: estensioni `.heic`/`.heif` sono in allowlist ma SkiaSharp 3 su Windows non decodifica HEIC senza extension Microsoft. In pratica iOS Safari converte automaticamente HEIC→JPEG sull'upload via `<input type="file">` (comportamento builtin). Se in test iPhone il `ContentType` ricevuto dovesse essere `image/heic`, valuteremo `LibHeifSharp` o `Magick.NET` come decoder aggiuntivo.
+
+**Test totali**: **20/20 in pass** (17 di B.8a-d + 3 nuovi su `FotoRepository`: `Create_then_GetByVerbale_returns_ordered_and_supports_didascalia_roundtrip`, `Delete_returns_filepath_and_removes_row`, `UpdateOrdineBulk_persists_new_ordering`).
+
+**Lavori esclusi** (vanno in B.10): firma con signature pad + transizione `Bozza → FirmatoCse` + assegnazione `Numero`/`Anno` + audit `Firma`, ACL fine sulle foto (utente vede solo i verbali del proprio cantiere), GC dei file orfani sul filesystem, test su iPhone vero (atteso `image/jpeg` post-conversione iOS).
+
+---
+
 ## Addendum 2026-05-06d — B.8d step 8-10 + auto-save su blur + fix APPL/CONF
 
 **Lavori chiusi**: step 8 prescrizioni (entità + repo + manager + UI), step 9 placeholder foto, step 10 riepilogo read-only, auto-save su blur sui campi free-text degli step 3-8, fix B.8c.1 sul "trap" APPL/CONF in step 4-5.
@@ -1100,6 +1154,6 @@ Spostato `@rendermode="@InteractiveServer"` da `MainLayout.razor` a `<Routes />`
 
 - **Sezioni 1-8, 10**: approvate implicitamente (nessuna contestazione).
 - **Sezione 9**: ✅ **22/22 voci approvate il 2026-05-05.**
-- **Sotto-fasi B**: B.1 / B.2 / B.3 completate. **B.4 completata 2026-05-05**: `ICMVerbaliDb` creato su `.\SQLEXPRESS`, 19 tabelle + 31 voci di seed applicate via `Invoke-Sqlcmd`. **B.5 completata 2026-05-05**: 10 Repository Dapper + 10 Manager + DI Scoped + 10 smoke test xUnit (10/10 pass). Fix Dapper-`DateOnly` documentato in Addendum. **B.6 completata 2026-05-05**: cookie auth, login/logout Minimal API, `IPasswordHasherService` (PBKDF2 via Identity), `DatabaseSeeder` `IHostedService` idempotente, policy `RequireAdmin`. **Zero NuGet aggiuntivi** (`PasswordHasher<TUser>` arriva da framework reference). Login flow verificato end-to-end via curl. **B.7 completata 2026-05-05**: anagrafiche CRUD UI (5 pagine `/anagrafica/*` con `MudDataGrid` + dialog Crea/Modifica), `AnagraficaPicker<T>` generic per il wizard B.8, NavMenu integrato, policy `RequireAdmin` su `/anagrafica/utenti`. Cambio password utente rimandato a B.7+. **B.8a completata 2026-05-06**: `IVerbaleRepository`/`Manager` estesi con creazione bozza completa transazionale (Verbale + 4 checklist pre-popolate + audit), Home riprogettata (due liste + FAB "+"), DTO `VerbaleListItem`, stub `/verbali/nuovo`. 12/12 test in pass. Fix render mode B.7 documentato in Addendum 2026-05-06. **B.8b completata 2026-05-06**: wizard skeleton (route segment `/verbali/{id}/step/{n}`), step 1 anagrafica con 7 `AnagraficaPicker`, step 2 meteo/esito/interferenze, `WizardStepper` con 10 tondini, `UpdateAnagraficaAsync` + `UpdateMeteoEsitoAsync` su Repository/Manager, righe Home cliccabili. Step 3-10 mostrano alert "in costruzione". 14/14 test in pass. **B.8c completata 2026-05-06**: spostate interferenze da step 2 a step 7 (coerenza con PDF), 5 nuovi step UI (3-7), 4 GET joinati + 4 UPDATE bulk transazionali su Repository, 4 DTO `VerbaleXxxItem` in `Models/`, split `UpdateMeteoEsito` in due metodi. ReachableSteps 1-7. Step 8-10 mostrano alert "in costruzione (B.8d)". 16/16 test in pass. **B.8d completata 2026-05-06**: step 8 prescrizioni (entità + repo `Get`/`Replace` + manager + UI lista dinamica con add/remove/move), step 9 placeholder foto, step 10 riepilogo read-only con risoluzione FK anagrafica via Manager paralleli, auto-save su blur sui free-text degli step 3-8 (`AutoSaveBadge` shared, blur scelto vs debounce), fix B.8c.1 trap APPL/CONF in step 4-5. ReachableSteps 1-10. "Salva e firma" è dummy in attesa di B.9/B.10. 17/17 test in pass. **Fase B.8 chiusa per intero**.
+- **Sotto-fasi B**: B.1 / B.2 / B.3 completate. **B.4 completata 2026-05-05**: `ICMVerbaliDb` creato su `.\SQLEXPRESS`, 19 tabelle + 31 voci di seed applicate via `Invoke-Sqlcmd`. **B.5 completata 2026-05-05**: 10 Repository Dapper + 10 Manager + DI Scoped + 10 smoke test xUnit (10/10 pass). Fix Dapper-`DateOnly` documentato in Addendum. **B.6 completata 2026-05-05**: cookie auth, login/logout Minimal API, `IPasswordHasherService` (PBKDF2 via Identity), `DatabaseSeeder` `IHostedService` idempotente, policy `RequireAdmin`. **Zero NuGet aggiuntivi** (`PasswordHasher<TUser>` arriva da framework reference). Login flow verificato end-to-end via curl. **B.7 completata 2026-05-05**: anagrafiche CRUD UI (5 pagine `/anagrafica/*` con `MudDataGrid` + dialog Crea/Modifica), `AnagraficaPicker<T>` generic per il wizard B.8, NavMenu integrato, policy `RequireAdmin` su `/anagrafica/utenti`. Cambio password utente rimandato a B.7+. **B.8a completata 2026-05-06**: `IVerbaleRepository`/`Manager` estesi con creazione bozza completa transazionale (Verbale + 4 checklist pre-popolate + audit), Home riprogettata (due liste + FAB "+"), DTO `VerbaleListItem`, stub `/verbali/nuovo`. 12/12 test in pass. Fix render mode B.7 documentato in Addendum 2026-05-06. **B.8b completata 2026-05-06**: wizard skeleton (route segment `/verbali/{id}/step/{n}`), step 1 anagrafica con 7 `AnagraficaPicker`, step 2 meteo/esito/interferenze, `WizardStepper` con 10 tondini, `UpdateAnagraficaAsync` + `UpdateMeteoEsitoAsync` su Repository/Manager, righe Home cliccabili. Step 3-10 mostrano alert "in costruzione". 14/14 test in pass. **B.8c completata 2026-05-06**: spostate interferenze da step 2 a step 7 (coerenza con PDF), 5 nuovi step UI (3-7), 4 GET joinati + 4 UPDATE bulk transazionali su Repository, 4 DTO `VerbaleXxxItem` in `Models/`, split `UpdateMeteoEsito` in due metodi. ReachableSteps 1-7. Step 8-10 mostrano alert "in costruzione (B.8d)". 16/16 test in pass. **B.8d completata 2026-05-06**: step 8 prescrizioni (entità + repo `Get`/`Replace` + manager + UI lista dinamica con add/remove/move), step 9 placeholder foto, step 10 riepilogo read-only con risoluzione FK anagrafica via Manager paralleli, auto-save su blur sui free-text degli step 3-8 (`AutoSaveBadge` shared, blur scelto vs debounce), fix B.8c.1 trap APPL/CONF in step 4-5. ReachableSteps 1-10. "Salva e firma" è dummy in attesa di B.9/B.10. 17/17 test in pass. **Fase B.8 chiusa per intero**. **B.9 completata 2026-05-07**: pipeline upload foto end-to-end con SkiaSharp (auto-orient EXIF + resize 1920px + thumb 200x200 cover-crop), `IFotoRepository`+`IFotoManager`, endpoint `/api/foto/{id}` e `/thumb` con auth, UI step 9 con due bottoni separati (Camera + Galleria) per gestire l'Android 13+ Photo Picker, `<InputFile>` diretto invece di `MudFileUpload` (ActivatorContent non rendeva), `App_Data/uploads/` aggiunto a `.gitignore`, profilo `lan` in launchSettings per test da smartphone via IP locale. 20/20 test in pass.
 
 **Documento congelato come baseline di design.** Eventuali deviazioni emerse in implementazione devono aggiornare questo file in modo additivo (vedi CLAUDE.md "Documento vivo"). Si procede con la Fase B secondo il piano concordato in chat.
