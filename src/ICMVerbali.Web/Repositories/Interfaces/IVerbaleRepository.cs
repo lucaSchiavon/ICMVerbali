@@ -82,6 +82,18 @@ public interface IVerbaleRepository
     Task UpdateCondizioniBulkAsync(
         Guid verbaleId, IEnumerable<VerbaleCondizioneAmbientale> rows, CancellationToken ct = default);
 
+    // -------- prescrizioni CSE (step 8 wizard) --------------------------
+    // Lista in ordine crescente di Ordine.
+    Task<IReadOnlyList<PrescrizioneCse>>
+        GetPrescrizioniByVerbaleAsync(Guid verbaleId, CancellationToken ct = default);
+
+    // Sostituzione completa: una transazione con DELETE delle righe esistenti,
+    // INSERT delle nuove, bump UpdatedAt sul Verbale. Pragmatica per liste piccole
+    // (tipicamente < 20 prescrizioni per verbale): evita la complessita' di un diff
+    // INSERT/UPDATE/DELETE selettivo.
+    Task ReplacePrescrizioniAsync(
+        Guid verbaleId, IEnumerable<PrescrizioneCse> rows, CancellationToken ct = default);
+
     // -------- liste Home -------------------------------------------------
     // Verbali del giorno (esclude bozze e soft-deleted), ordinati per UpdatedAt DESC.
     Task<IReadOnlyList<VerbaleListItem>> GetByDataAsync(DateOnly data, CancellationToken ct = default);

@@ -112,6 +112,20 @@ WHERE VerbaleId = @VerbaleId AND CatalogoTipoCondizioneAmbientaleId = @CatalogoT
     private const string SqlBumpVerbaleUpdatedAt = @"
 UPDATE dbo.Verbale SET UpdatedAt = SYSUTCDATETIME() WHERE Id = @Id;";
 
+    // ---------- prescrizioni CSE (step 8 wizard) -----------------------
+    private const string SqlGetPrescrizioniByVerbale = @"
+SELECT Id, VerbaleId, Testo, Ordine
+FROM dbo.PrescrizioneCse
+WHERE VerbaleId = @VerbaleId
+ORDER BY Ordine;";
+
+    private const string SqlDeletePrescrizioniByVerbale = @"
+DELETE FROM dbo.PrescrizioneCse WHERE VerbaleId = @VerbaleId;";
+
+    private const string SqlInsertPrescrizione = @"
+INSERT INTO dbo.PrescrizioneCse (Id, VerbaleId, Testo, Ordine)
+VALUES (@Id, @VerbaleId, @Testo, @Ordine);";
+
     // ---------- GET joinate (step 3-6 read) -----------------------------
 
     private const string SqlGetAttivitaByVerbale = @"
@@ -406,6 +420,45 @@ ORDER BY v.UpdatedAt DESC;";
     public Task UpdateCondizioniBulkAsync(
         Guid verbaleId, IEnumerable<VerbaleCondizioneAmbientale> rows, CancellationToken ct = default)
         => RunBulkUpdateAsync(verbaleId, rows, SqlUpdateCondizioneRow, ct);
+
+    // -------- prescrizioni (step 8) --------------------------------------
+
+    public async Task<IReadOnlyList<PrescrizioneCse>>
+        GetPrescrizioniByVerbaleAsync(Guid verbaleId, CancellationToken ct = default)
+    {
+        await using var conn = await _factory.CreateOpenConnectionAsync(ct);
+        var rows = await conn.QueryAsync<PrescrizioneCse>(
+            new CommandDefinition(SqlGetPrescrizioniByVerbale, new { VerbaleId = verbaleId }, cancellationToken: ct));
+        return rows.ToList();
+    }
+
+    public async Task ReplacePrescrizioniAsync(
+        Guid verbaleId, IEnumerable<PrescrizioneCse> rows, CancellationToken ct = default)
+    {
+        var list = rows.ToList();
+        await using var conn = await _factory.CreateOpenConnectionAsync(ct);
+        await using var tx = await conn.BeginTransactionAsync(ct);
+        try
+        {
+            await conn.ExecuteAsync(new CommandDefinition(
+                SqlDeletePrescrizioniByVerbale, new { VerbaleId = verbaleId }, transaction: tx, cancellationToken: ct));
+
+            if (list.Count > 0)
+            {
+                await conn.ExecuteAsync(new CommandDefinition(
+                    SqlInsertPrescrizione, list, transaction: tx, cancellationToken: ct));
+            }
+
+            await conn.ExecuteAsync(new CommandDefinition(
+                SqlBumpVerbaleUpdatedAt, new { Id = verbaleId }, transaction: tx, cancellationToken: ct));
+            await tx.CommitAsync(ct);
+        }
+        catch
+        {
+            await tx.RollbackAsync(ct);
+            throw;
+        }
+    }
 
     private async Task RunBulkUpdateAsync<T>(
         Guid verbaleId, IEnumerable<T> rows, string sqlUpdateRow, CancellationToken ct)

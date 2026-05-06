@@ -80,6 +80,16 @@ public interface IVerbaleManager
     Task UpdateCondizioniAsync(
         Guid verbaleId, IEnumerable<Entities.VerbaleCondizioneAmbientale> rows, CancellationToken ct = default);
 
+    // -------- prescrizioni CSE (step 8 wizard) --------------------------
+    Task<IReadOnlyList<PrescrizioneCse>>
+        GetPrescrizioniAsync(Guid verbaleId, CancellationToken ct = default);
+
+    // Sostituzione completa della lista prescrizioni: il manager si occupa di
+    // rinumerare Ordine 1..N (l'utente lo controlla via UI con move-up/down) e
+    // di scartare righe con Testo vuoto. Genera Id nuovi per le righe senza Id.
+    Task UpdatePrescrizioniAsync(
+        Guid verbaleId, IEnumerable<PrescrizioneCse> rows, CancellationToken ct = default);
+
     // -------- liste Home -------------------------------------------------
     // Verbali firmati / chiusi del giorno richiesto. Le bozze NON sono incluse
     // (hanno una sezione dedicata in Home).

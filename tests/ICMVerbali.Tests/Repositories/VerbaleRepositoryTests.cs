@@ -381,6 +381,72 @@ public class VerbaleRepositoryTests
         }
     }
 
+    [Fact]
+    public async Task ReplacePrescrizioni_then_GetByVerbale_returns_replaced_set_in_order()
+    {
+        // Verifica delete-and-insert: una prima Replace inserisce 3 righe, una
+        // seconda Replace con 2 righe diverse deve sostituire integralmente la
+        // lista (nessuna riga residua della prima). UpdatedAt viene bumpato.
+        var verbaleRepo = new VerbaleRepository(_factory);
+        var anagrafiche = await SeedAnagraficheAsync();
+        var verbaleId = Guid.NewGuid();
+        var verbale = BuildBozza(verbaleId, anagrafiche);
+        var audit = new VerbaleAudit
+        {
+            Id = Guid.NewGuid(),
+            VerbaleId = verbaleId,
+            UtenteId = anagrafiche.UtenteId,
+            DataEvento = DateTime.UtcNow,
+            EventoTipo = EventoAuditTipo.Creazione,
+        };
+
+        try
+        {
+            await verbaleRepo.CreateBozzaWithChildrenAsync(
+                verbale,
+                Array.Empty<VerbaleAttivita>(),
+                Array.Empty<VerbaleDocumento>(),
+                Array.Empty<VerbaleApprestamento>(),
+                Array.Empty<VerbaleCondizioneAmbientale>(),
+                audit);
+
+            var creatoUpdatedAt = (await verbaleRepo.GetByIdAsync(verbaleId))!.UpdatedAt;
+
+            var primaTornata = new[]
+            {
+                new PrescrizioneCse { Id = Guid.NewGuid(), VerbaleId = verbaleId, Testo = "Prima",  Ordine = 1 },
+                new PrescrizioneCse { Id = Guid.NewGuid(), VerbaleId = verbaleId, Testo = "Seconda", Ordine = 2 },
+                new PrescrizioneCse { Id = Guid.NewGuid(), VerbaleId = verbaleId, Testo = "Terza",   Ordine = 3 },
+            };
+            await verbaleRepo.ReplacePrescrizioniAsync(verbaleId, primaTornata);
+
+            var dopoPrima = await verbaleRepo.GetPrescrizioniByVerbaleAsync(verbaleId);
+            Assert.Equal(3, dopoPrima.Count);
+            Assert.Equal(new[] { "Prima", "Seconda", "Terza" }, dopoPrima.Select(p => p.Testo));
+            Assert.Equal(new[] { 1, 2, 3 }, dopoPrima.Select(p => p.Ordine));
+
+            var secondaTornata = new[]
+            {
+                new PrescrizioneCse { Id = Guid.NewGuid(), VerbaleId = verbaleId, Testo = "Sostituita-A", Ordine = 1 },
+                new PrescrizioneCse { Id = Guid.NewGuid(), VerbaleId = verbaleId, Testo = "Sostituita-B", Ordine = 2 },
+            };
+            await verbaleRepo.ReplacePrescrizioniAsync(verbaleId, secondaTornata);
+
+            var dopoSeconda = await verbaleRepo.GetPrescrizioniByVerbaleAsync(verbaleId);
+            Assert.Equal(2, dopoSeconda.Count);
+            Assert.Equal(new[] { "Sostituita-A", "Sostituita-B" }, dopoSeconda.Select(p => p.Testo));
+
+            // UpdatedAt deve essere stato bumpato dalla Replace (datetime2(3) ha
+            // risoluzione ms: la replay nei test e' praticamente sempre dopo).
+            var dopoUpdatedAt = (await verbaleRepo.GetByIdAsync(verbaleId))!.UpdatedAt;
+            Assert.True(dopoUpdatedAt >= creatoUpdatedAt);
+        }
+        finally
+        {
+            await CleanupAsync(verbaleId, anagrafiche);
+        }
+    }
+
     // --------- helpers ----------------------------------------------------
 
     private sealed record AnagraficheSeed(

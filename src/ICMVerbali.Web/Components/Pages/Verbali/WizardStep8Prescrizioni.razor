@@ -1,0 +1,142 @@
+@*
+    Step 8 del wizard: prescrizioni e osservazioni del CSE (Sez. 8 PDF).
+    Lista dinamica di righe: per ognuna un MudTextField multilinea + bottoni
+    sposta-su / sposta-giu / rimuovi. Pulsante "Aggiungi prescrizione" in fondo.
+    Ordine viene rinumerato dal manager 1..N sulla base della posizione in lista.
+*@
+
+@using ICMVerbali.Web.Entities
+@using ICMVerbali.Web.Managers.Interfaces
+
+@inject IVerbaleManager VerbaleManager
+
+<MudPaper Class="pa-6" Elevation="1">
+    <MudText Typo="Typo.h6" GutterBottom="true">Sezione 8 — Prescrizioni e osservazioni del CSE</MudText>
+
+    @if (_loading)
+    {
+        <MudProgressLinear Indeterminate="true" Class="my-4" />
+    }
+    else
+    {
+        @if (_items.Count == 0)
+        {
+            <MudAlert Severity="Severity.Info" Variant="Variant.Outlined" Class="my-4">
+                Nessuna prescrizione inserita. Premi "Aggiungi prescrizione" per iniziare.
+            </MudAlert>
+        }
+
+        @for (var i = 0; i < _items.Count; i++)
+        {
+            var idx = i;
+            var item = _items[idx];
+            <MudPaper @key="item.Id" Class="pa-3 my-2" Outlined="true">
+                <MudStack Row="true" AlignItems="AlignItems.Start" Spacing="2">
+                    <MudText Typo="Typo.body2" Class="mt-2" Style="min-width: 32px;">
+                        @(idx + 1).
+                    </MudText>
+                    <MudTextField T="string"
+                                  Value="item.Testo"
+                                  ValueChanged="@((string? t) => item.Testo = t ?? string.Empty)"
+                                  Lines="3"
+                                  MaxLength="2000"
+                                  Variant="Variant.Outlined"
+                                  Margin="Margin.Dense"
+                                  Placeholder="Testo della prescrizione..."
+                                  Class="flex-grow-1" />
+                    <MudStack Spacing="0">
+                        <MudIconButton Icon="@Icons.Material.Filled.ArrowUpward"
+                                       Size="Size.Small"
+                                       Disabled="@(idx == 0)"
+                                       OnClick="@(() => MoveUp(idx))"
+                                       title="Sposta su" />
+                        <MudIconButton Icon="@Icons.Material.Filled.ArrowDownward"
+                                       Size="Size.Small"
+                                       Disabled="@(idx == _items.Count - 1)"
+                                       OnClick="@(() => MoveDown(idx))"
+                                       title="Sposta giu" />
+                        <MudIconButton Icon="@Icons.Material.Filled.Delete"
+                                       Size="Size.Small"
+                                       Color="Color.Error"
+                                       OnClick="@(() => Remove(idx))"
+                                       title="Rimuovi" />
+                    </MudStack>
+                </MudStack>
+            </MudPaper>
+        }
+
+        <MudButton Variant="Variant.Outlined"
+                   Color="Color.Primary"
+                   StartIcon="@Icons.Material.Filled.Add"
+                   OnClick="Add"
+                   Class="mt-3">
+            Aggiungi prescrizione
+        </MudButton>
+
+        <MudStack Row="true" Justify="Justify.SpaceBetween" Class="mt-6">
+            <MudButton Variant="Variant.Text"
+                       StartIcon="@Icons.Material.Filled.ArrowBack"
+                       OnClick="OnBack">
+                Indietro
+            </MudButton>
+            <MudButton Variant="Variant.Filled" Color="Color.Primary"
+                       Disabled="_saving"
+                       OnClick="HandleSubmitAsync"
+                       EndIcon="@Icons.Material.Filled.ArrowForward">
+                Salva e prosegui
+            </MudButton>
+        </MudStack>
+    }
+</MudPaper>
+
+@code {
+    [Parameter, EditorRequired] public Guid VerbaleId { get; set; }
+    [Parameter] public EventCallback<IReadOnlyList<PrescrizioneCse>> OnSubmit { get; set; }
+    [Parameter] public EventCallback OnBack { get; set; }
+
+    private bool _loading = true;
+    private bool _saving;
+    private List<PrescrizioneCse> _items = new();
+
+    protected override async Task OnInitializedAsync()
+    {
+        var rows = await VerbaleManager.GetPrescrizioniAsync(VerbaleId);
+        _items = rows.ToList();
+        _loading = false;
+    }
+
+    private void Add()
+    {
+        _items.Add(new PrescrizioneCse
+        {
+            Id = Guid.NewGuid(),
+            VerbaleId = VerbaleId,
+            Testo = string.Empty,
+            Ordine = _items.Count + 1,
+        });
+    }
+
+    private void Remove(int idx)
+    {
+        _items.RemoveAt(idx);
+    }
+
+    private void MoveUp(int idx)
+    {
+        if (idx <= 0 || idx >= _items.Count) return;
+        (_items[idx - 1], _items[idx]) = (_items[idx], _items[idx - 1]);
+    }
+
+    private void MoveDown(int idx)
+    {
+        if (idx < 0 || idx >= _items.Count - 1) return;
+        (_items[idx + 1], _items[idx]) = (_items[idx], _items[idx + 1]);
+    }
+
+    private async Task HandleSubmitAsync()
+    {
+        _saving = true;
+        await OnSubmit.InvokeAsync(_items);
+        _saving = false;
+    }
+}

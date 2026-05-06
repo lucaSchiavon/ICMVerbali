@@ -46,7 +46,7 @@
                     </td>
                     <td>
                         <MudCheckBox T="bool" Value="captured.Applicabile"
-                                     ValueChanged="@((bool v) => captured.Applicabile = v)" />
+                                     ValueChanged="@((bool v) => SetApplicabile(captured, v))" />
                     </td>
                     <td>
                         <MudCheckBox T="bool" Value="captured.Conforme"
@@ -93,11 +93,27 @@
     {
         var rows = await VerbaleManager.GetDocumentiAsync(VerbaleId);
         _items = rows.ToList();
+        foreach (var item in _items)
+        {
+            if (!item.Applicabile && item.Conforme)
+            {
+                item.Conforme = false;
+            }
+        }
         _loading = false;
     }
 
     private static bool IsAltro(VerbaleDocumentoItem item)
         => item.Codice.EndsWith("_ALTRO", StringComparison.OrdinalIgnoreCase);
+
+    private static void SetApplicabile(VerbaleDocumentoItem item, bool value)
+    {
+        item.Applicabile = value;
+        if (!value)
+        {
+            item.Conforme = false;
+        }
+    }
 
     private async Task HandleSubmitAsync()
     {

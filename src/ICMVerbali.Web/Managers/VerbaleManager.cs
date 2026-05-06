@@ -201,4 +201,31 @@ public sealed class VerbaleManager : IVerbaleManager
     public Task UpdateCondizioniAsync(
         Guid verbaleId, IEnumerable<VerbaleCondizioneAmbientale> rows, CancellationToken ct = default)
         => _repo.UpdateCondizioniBulkAsync(verbaleId, rows, ct);
+
+    // -------- prescrizioni (step 8) --------------------------------------
+
+    public Task<IReadOnlyList<PrescrizioneCse>>
+        GetPrescrizioniAsync(Guid verbaleId, CancellationToken ct = default)
+        => _repo.GetPrescrizioniByVerbaleAsync(verbaleId, ct);
+
+    public Task UpdatePrescrizioniAsync(
+        Guid verbaleId, IEnumerable<PrescrizioneCse> rows, CancellationToken ct = default)
+    {
+        // Normalizza: scarta righe con Testo vuoto/null, rinumera Ordine 1..N
+        // sull'ordine in cui arrivano (la UI controlla l'ordine con move up/down).
+        // Forza VerbaleId al valore passato per difesa (mai fidarsi del client).
+        // Genera nuovi Id per righe nuove (Id == Guid.Empty).
+        var normalized = rows
+            .Where(r => !string.IsNullOrWhiteSpace(r.Testo))
+            .Select((r, i) => new PrescrizioneCse
+            {
+                Id = r.Id == Guid.Empty ? Guid.NewGuid() : r.Id,
+                VerbaleId = verbaleId,
+                Testo = r.Testo.Trim(),
+                Ordine = i + 1,
+            })
+            .ToList();
+
+        return _repo.ReplacePrescrizioniAsync(verbaleId, normalized, ct);
+    }
 }

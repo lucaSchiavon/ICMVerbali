@@ -74,6 +74,12 @@
                                  OnSubmit="HandleStep7SubmitAsync"
                                  OnBack="@(() => GoToStep(6))" />
     }
+    else if (_currentStep == 8 && _verbale is not null)
+    {
+        <WizardStep8Prescrizioni VerbaleId="_verbale.Id"
+                                 OnSubmit="HandleStep8SubmitAsync"
+                                 OnBack="@(() => GoToStep(7))" />
+    }
     else
     {
         <MudPaper Class="pa-6" Elevation="1">
@@ -99,8 +105,10 @@
     private int _currentStep = 1;
     private bool _loading = true;
 
-    // B.8c estende ReachableSteps a 1-7. B.8d aggiungera' 8-10.
-    private static readonly IReadOnlyList<int> _reachableSteps = new[] { 1, 2, 3, 4, 5, 6, 7 };
+    // B.8c estende ReachableSteps a 1-7. B.8d aggiunge step 8 (prescrizioni);
+    // step 9 (foto) e 10 (riepilogo) restano "in costruzione" finche' non
+    // chiusi nelle prossime sotto-fasi.
+    private static readonly IReadOnlyList<int> _reachableSteps = new[] { 1, 2, 3, 4, 5, 6, 7, 8 };
 
     protected override async Task OnParametersSetAsync()
     {
@@ -238,6 +246,14 @@
         await VerbaleManager.UpdateInterferenzeAsync(_verbale.Id, s.Interferenze, s.Note);
         Snackbar.Add("Interferenze salvate.", Severity.Success);
         Nav.NavigateTo($"/verbali/{_verbale.Id}/step/8");
+    }
+
+    private async Task HandleStep8SubmitAsync(IReadOnlyList<PrescrizioneCse> items)
+    {
+        if (_verbale is null) return;
+        await VerbaleManager.UpdatePrescrizioniAsync(_verbale.Id, items);
+        Snackbar.Add("Prescrizioni salvate.", Severity.Success);
+        Nav.NavigateTo($"/verbali/{_verbale.Id}/step/9");
     }
 
     private void HandleCancelAsync() => Nav.NavigateTo("/");
