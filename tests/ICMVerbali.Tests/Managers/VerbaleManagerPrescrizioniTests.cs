@@ -1,6 +1,7 @@
 using ICMVerbali.Web.Entities;
 using ICMVerbali.Web.Entities.Enums;
 using ICMVerbali.Web.Managers;
+using ICMVerbali.Web.Managers.Interfaces;
 using ICMVerbali.Web.Models;
 using ICMVerbali.Web.Repositories.Interfaces;
 using ICMVerbali.Web.Storage;
@@ -95,6 +96,7 @@ public class VerbaleManagerPrescrizioniTests
             new NoopCatalogoTipoApprestamento(),
             new NoopCatalogoTipoCondizioneAmbientale(),
             new NoopFirmaStorage(),
+            new NoopFirmaTokenManager(),
             TimeProvider.System);
 
     private sealed class CaptureVerbaleRepo : IVerbaleRepository
@@ -125,7 +127,8 @@ public class VerbaleManagerPrescrizioniTests
         public Task<IReadOnlyList<PrescrizioneCse>> GetPrescrizioniByVerbaleAsync(Guid verbaleId, CancellationToken ct = default) => Task.FromResult<IReadOnlyList<PrescrizioneCse>>(Array.Empty<PrescrizioneCse>());
         public Task<IReadOnlyList<VerbaleListItem>> GetByDataAsync(DateOnly data, CancellationToken ct = default) => Task.FromResult<IReadOnlyList<VerbaleListItem>>(Array.Empty<VerbaleListItem>());
         public Task<IReadOnlyList<VerbaleListItem>> GetBozzeAsync(CancellationToken ct = default) => Task.FromResult<IReadOnlyList<VerbaleListItem>>(Array.Empty<VerbaleListItem>());
-        public Task<FirmaCseResult> FirmaCseAsync(Guid verbaleId, int anno, string nomeFirmatario, DateOnly dataFirma, string immagineFirmaPath, Guid utenteId, CancellationToken ct = default) => Task.FromResult(new FirmaCseResult(1, anno));
+        public Task<FirmaCseResult> FirmaCseAsync(Guid verbaleId, int anno, string nomeFirmatario, DateOnly dataFirma, string immagineFirmaPath, Guid utenteId, FirmaTokenInputs tokenImpresa, CancellationToken ct = default) => Task.FromResult(new FirmaCseResult(1, anno, tokenImpresa.Token));
+        public Task FirmaImpresaAsync(Guid verbaleId, Guid tokenId, string nomeFirmatario, DateOnly dataFirma, string immagineFirmaPath, Guid utenteId, CancellationToken ct = default) => Task.CompletedTask;
     }
 
     private sealed class NoopCatalogoTipoAttivita : ICatalogoTipoAttivitaRepository
@@ -163,5 +166,13 @@ public class VerbaleManagerPrescrizioniTests
         public Task<Stream> ApriLetturaAsync(string filePathRelativo, CancellationToken ct = default)
             => Task.FromResult<Stream>(Stream.Null);
         public Task EliminaAsync(string filePathRelativo, CancellationToken ct = default) => Task.CompletedTask;
+    }
+
+    private sealed class NoopFirmaTokenManager : IFirmaTokenManager
+    {
+        public FirmaTokenSeed CalcolaProssimoToken()
+            => new(Guid.CreateVersion7(), Guid.CreateVersion7(), DateTime.UtcNow.AddHours(48), DateTime.UtcNow);
+        public Task<FirmaToken> ValidaTokenAsync(Guid token, CancellationToken ct = default)
+            => throw new NotImplementedException();
     }
 }

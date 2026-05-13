@@ -1,0 +1,424 @@
+@*
+    Pagina pubblica per la firma dell'Impresa Appaltatrice (B.11).
+    Accessibile via magic-link condiviso dal CSE: /firma-impresa/{Token}.
+    Niente [Authorize]: l'impresa non ha un account sul sistema.
+
+    Flusso:
+    1. Valida il token (FirmaTokenManager): scaduto/usato/inesistente -> pagina di errore.
+    2. Carica verbale, verifica stato FirmatoCse.
+    3. Mostra riepilogo verbale read-only + anteprima firma CSE inline base64.
+    4. Form di firma (canvas + nome firmatario impresa pre-compilato dall'anagrafica impresa).
+    5. Conferma -> VerbaleManager.FirmaImpresaAsync -> pagina di conferma.
+*@
+
+@page "/firma-impresa/{Token:guid}"
+@layout PublicLayout
+@rendermode InteractiveServer
+
+@using ICMVerbali.Web.Entities
+@using ICMVerbali.Web.Entities.Enums
+@using ICMVerbali.Web.Managers
+@using ICMVerbali.Web.Managers.Interfaces
+@using ICMVerbali.Web.Repositories.Interfaces
+@using ICMVerbali.Web.Storage
+
+@inject IFirmaTokenManager FirmaTokenManager
+@inject IVerbaleManager VerbaleManager
+@inject IFirmaRepository FirmaRepo
+@inject IFirmaStorageService FirmaStorage
+@inject ICantiereManager CantiereManager
+@inject ICommittenteManager CommittenteManager
+@inject IImpresaAppaltatriceManager ImpresaManager
+@inject IPersonaManager PersonaManager
+@inject IJSRuntime JS
+@implements IAsyncDisposable
+
+<PageTitle>Firma Impresa Appaltatrice</PageTitle>
+
+@if (_loading)
+{
+    <MudPaper Class="pa-6" Elevation="1">
+        <MudProgressLinear Indeterminate="true" />
+        <MudText Class="mt-3">Caricamento del verbale...</MudText>
+    </MudPaper>
+}
+else if (_tokenError is not null)
+{
+    <MudPaper Class="pa-6" Elevation="1">
+        <MudAlert Severity="Severity.Error" Variant="Variant.Outlined" Icon="@Icons.Material.Filled.Block">
+            <MudText Typo="Typo.h6">@TokenErrorTitle(_tokenError.Value)</MudText>
+            <MudText Class="mt-2">@TokenErrorMessage(_tokenError.Value)</MudText>
+        </MudAlert>
+        <MudText Class="mt-4 text-disabled" Typo="Typo.body2">
+            Per assistenza contatta il CSE che ha generato il link.
+        </MudText>
+    </MudPaper>
+}
+else if (_giaFirmato)
+{
+    <MudPaper Class="pa-6" Elevation="1">
+        <MudAlert Severity="Severity.Info" Variant="Variant.Outlined" Icon="@Icons.Material.Filled.CheckCircle">
+            <MudText Typo="Typo.h6">Firma gia' registrata</MudText>
+            <MudText Class="mt-2">
+                Il verbale <strong>@_verbale!.Numero/@_verbale.Anno</strong> e' gia' stato firmato
+                anche dall'Impresa. Non occorre nessuna azione.
+            </MudText>
+        </MudAlert>
+    </MudPaper>
+}
+else if (_firmaCompletata)
+{
+    <MudPaper Class="pa-6" Elevation="1">
+        <MudAlert Severity="Severity.Success" Variant="Variant.Outlined" Icon="@Icons.Material.Filled.Verified">
+            <MudText Typo="Typo.h6">Firma registrata. Grazie.</MudText>
+            <MudText Class="mt-2">
+                La firma dell'Impresa per il verbale <strong>@_verbale!.Numero/@_verbale.Anno</strong>
+                e' stata registrata correttamente.
+            </MudText>
+        </MudAlert>
+    </MudPaper>
+}
+else
+{
+    @* --- Riepilogo verbale --------------------------------------------- *@
+    <MudPaper Class="pa-4 mb-3" Elevation="1">
+        <MudText Typo="Typo.h5">Verbale @_verbale!.Numero/@_verbale!.Anno</MudText>
+        <MudText Typo="Typo.body2" Class="text-disabled">
+            del @_verbale!.Data.ToString("dd/MM/yyyy")
+        </MudText>
+    </MudPaper>
+
+    <MudPaper Class="pa-4 mb-3" Elevation="1">
+        <MudText Typo="Typo.subtitle1" Class="mb-2"><strong>Cantiere e parti</strong></MudText>
+        <MudGrid Spacing="2">
+            <MudItem xs="12"><strong>Cantiere:</strong> @(_cantiere?.Ubicazione ?? "—")</MudItem>
+            <MudItem xs="12"><strong>Committente:</strong> @(_committente?.RagioneSociale ?? "—")</MudItem>
+            <MudItem xs="12"><strong>Impresa appaltatrice:</strong> @(_impresa?.RagioneSociale ?? "—")</MudItem>
+            <MudItem xs="12" sm="6"><strong>CSE:</strong> @(_cse?.Nominativo ?? "—")</MudItem>
+            <MudItem xs="12" sm="6"><strong>Esito verifica:</strong> @LabelEsito(_verbale!.Esito)</MudItem>
+        </MudGrid>
+    </MudPaper>
+
+    @if (!string.IsNullOrEmpty(_firmaCseBase64))
+    {
+        <MudPaper Class="pa-4 mb-3" Elevation="1">
+            <MudText Typo="Typo.subtitle1" Class="mb-2"><strong>Firma del CSE</strong></MudText>
+            <MudText Typo="Typo.body2" Class="mb-1">
+                @_firmaCseNomeFirmatario — @_firmaCseDataFirma.ToString("dd/MM/yyyy")
+            </MudText>
+            <div style="border: 1px solid var(--mud-palette-lines-default); border-radius: 4px; padding: 8px; background: #fff;">
+                <img src="@_firmaCseBase64"
+                     alt="Firma CSE"
+                     style="display: block; max-width: 100%; height: auto;" />
+            </div>
+        </MudPaper>
+    }
+
+    @* --- Form di firma Impresa ---------------------------------------- *@
+    <MudPaper Class="pa-4 mb-3" Elevation="1">
+        <MudText Typo="Typo.subtitle1" Class="mb-3"><strong>Firma dell'Impresa Appaltatrice</strong></MudText>
+
+        <MudStack Spacing="3">
+            <MudTextField @bind-Value="_nomeFirmatario"
+                          Label="Nome del firmatario (referente Impresa)"
+                          Variant="Variant.Outlined"
+                          Required="true"
+                          Disabled="_signing"
+                          MaxLength="200" />
+
+            <div>
+                <MudText Typo="Typo.body2" Class="mb-1 mud-text-secondary">
+                    Disegna la firma nel riquadro qui sotto.
+                </MudText>
+                <div style="border: 1px solid var(--mud-palette-lines-default); border-radius: 4px; background: #fff; touch-action: none;">
+                    <canvas id="@_canvasId"
+                            style="display: block; width: 100%; height: 200px; touch-action: none;"></canvas>
+                </div>
+            </div>
+
+            @if (!string.IsNullOrEmpty(_errorMessage))
+            {
+                <MudAlert Severity="Severity.Error" Variant="Variant.Outlined" Dense="true">
+                    @_errorMessage
+                </MudAlert>
+            }
+
+            <MudStack Row="true" Justify="Justify.SpaceBetween">
+                <MudButton Variant="Variant.Text" OnClick="HandleClearAsync" Disabled="_signing"
+                           StartIcon="@Icons.Material.Filled.Refresh">
+                    Pulisci
+                </MudButton>
+                <MudButton Variant="Variant.Filled" Color="Color.Success"
+                           OnClick="HandleConfirmAsync"
+                           Disabled="_signing || string.IsNullOrWhiteSpace(_nomeFirmatario)"
+                           StartIcon="@Icons.Material.Filled.Check">
+                    @(_signing ? "Firma in corso..." : "Conferma firma")
+                </MudButton>
+            </MudStack>
+        </MudStack>
+    </MudPaper>
+}
+
+@code {
+    [Parameter] public Guid Token { get; set; }
+
+    private bool _loading = true;
+    private FirmaTokenInvalidoMotivo? _tokenError;
+    private bool _giaFirmato;
+    private bool _firmaCompletata;
+
+    private FirmaToken? _tokenEntity;
+    private Verbale? _verbale;
+    private Cantiere? _cantiere;
+    private Committente? _committente;
+    private ImpresaAppaltatrice? _impresa;
+    private Persona? _cse;
+
+    private string? _firmaCseBase64;
+    private string _firmaCseNomeFirmatario = string.Empty;
+    private DateOnly _firmaCseDataFirma;
+
+    private readonly string _canvasId = $"sig-imp-{Guid.CreateVersion7():N}";
+    private IJSObjectReference? _module;
+    private bool _padInitialized;
+    private string _nomeFirmatario = string.Empty;
+    private bool _signing;
+    private string? _errorMessage;
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            _tokenEntity = await FirmaTokenManager.ValidaTokenAsync(Token);
+        }
+        catch (FirmaTokenInvalidoException ex)
+        {
+            _tokenError = ex.Motivo;
+            _loading = false;
+            return;
+        }
+
+        _verbale = await VerbaleManager.GetAsync(_tokenEntity.VerbaleId);
+        if (_verbale is null)
+        {
+            _tokenError = FirmaTokenInvalidoMotivo.NonTrovato;
+            _loading = false;
+            return;
+        }
+
+        if (_verbale.Stato == StatoVerbale.FirmatoImpresa)
+        {
+            _giaFirmato = true;
+            _loading = false;
+            return;
+        }
+
+        if (_verbale.Stato != StatoVerbale.FirmatoCse)
+        {
+            // Stato inconsistente con un token valido (es. Bozza dopo un rollback manuale).
+            // Trattiamo come token non valido per non confondere l'utente.
+            _tokenError = FirmaTokenInvalidoMotivo.NonTrovato;
+            _loading = false;
+            return;
+        }
+
+        // Carica anagrafiche e firma CSE in parallelo.
+        var cantiereTask = CantiereManager.GetAsync(_verbale.CantiereId);
+        var committenteTask = CommittenteManager.GetAsync(_verbale.CommittenteId);
+        var impresaTask = ImpresaManager.GetAsync(_verbale.ImpresaAppaltatriceId);
+        var cseTask = PersonaManager.GetAsync(_verbale.CsePersonaId);
+        var firmaCseTask = FirmaRepo.GetByVerbaleAndTipoAsync(_verbale.Id, TipoFirmatario.Cse);
+
+        await Task.WhenAll(cantiereTask, committenteTask, impresaTask, cseTask, firmaCseTask);
+        _cantiere = cantiereTask.Result;
+        _committente = committenteTask.Result;
+        _impresa = impresaTask.Result;
+        _cse = cseTask.Result;
+
+        var firmaCse = firmaCseTask.Result;
+        if (firmaCse is not null && !string.IsNullOrEmpty(firmaCse.ImmagineFirmaPath))
+        {
+            // Renderizzazione inline base64: l'endpoint /api/firme/{id}/{tipo} richiede
+            // autenticazione, ma qui l'utente e' anonimo. Carichiamo il PNG via storage
+            // service e lo serializziamo nel data URL. Vedi docs/01-design.md Addendum 2026-05-14 §11.
+            try
+            {
+                await using var stream = await FirmaStorage.ApriLetturaAsync(firmaCse.ImmagineFirmaPath);
+                using var ms = new MemoryStream();
+                await stream.CopyToAsync(ms);
+                _firmaCseBase64 = $"data:image/png;base64,{Convert.ToBase64String(ms.ToArray())}";
+                _firmaCseNomeFirmatario = firmaCse.NomeFirmatario;
+                _firmaCseDataFirma = firmaCse.DataFirma;
+            }
+            catch
+            {
+                // Se il PNG manca sul filesystem (orfano), procediamo senza preview.
+                _firmaCseBase64 = null;
+            }
+        }
+
+        // Pre-compila il nome firmatario con la ragione sociale dell'Impresa.
+        _nomeFirmatario = _impresa?.RagioneSociale ?? string.Empty;
+
+        _loading = false;
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        // Init del signature pad solo quando il blocco di firma e' visibile e non
+        // l'ho gia' inizializzato. firstRender non basta perche' la prima render
+        // pre-OnInitializedAsync mostra "Caricamento" (no canvas).
+        if (_padInitialized || _loading) return;
+        if (_tokenError is not null || _giaFirmato || _firmaCompletata) return;
+
+        try
+        {
+            _module = await JS.InvokeAsync<IJSObjectReference>(
+                "import", "/js/signatureInterop.js");
+            await _module.InvokeVoidAsync("init", _canvasId, new
+            {
+                backgroundColor = "rgb(255,255,255)",
+                penColor = "rgb(0,0,0)",
+            });
+            _padInitialized = true;
+        }
+        catch (Exception ex)
+        {
+            _errorMessage = $"Impossibile inizializzare l'area di firma: {ex.Message}";
+            StateHasChanged();
+        }
+    }
+
+    private async Task HandleClearAsync()
+    {
+        if (_module is null) return;
+        await _module.InvokeVoidAsync("clear", _canvasId);
+        _errorMessage = null;
+    }
+
+    private async Task HandleConfirmAsync()
+    {
+        _errorMessage = null;
+
+        if (_module is null)
+        {
+            _errorMessage = "Area di firma non pronta.";
+            return;
+        }
+        if (string.IsNullOrWhiteSpace(_nomeFirmatario))
+        {
+            _errorMessage = "Inserisci il nome del firmatario.";
+            return;
+        }
+
+        var isEmpty = await _module.InvokeAsync<bool>("isEmpty", _canvasId);
+        if (isEmpty)
+        {
+            _errorMessage = "Disegna la firma prima di confermare.";
+            return;
+        }
+
+        string? dataUrl;
+        try
+        {
+            dataUrl = await _module.InvokeAsync<string?>("getDataUrl", _canvasId, "image/png");
+        }
+        catch (Exception ex)
+        {
+            _errorMessage = $"Errore lettura firma: {ex.Message}";
+            return;
+        }
+        if (string.IsNullOrEmpty(dataUrl))
+        {
+            _errorMessage = "Firma vuota.";
+            return;
+        }
+
+        const string prefix = "data:image/png;base64,";
+        if (!dataUrl.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
+        {
+            _errorMessage = "Formato firma non valido.";
+            return;
+        }
+        byte[] pngBytes;
+        try
+        {
+            pngBytes = Convert.FromBase64String(dataUrl[prefix.Length..]);
+        }
+        catch (FormatException)
+        {
+            _errorMessage = "Encoding firma non valido.";
+            return;
+        }
+
+        _signing = true;
+        StateHasChanged();
+        try
+        {
+            await VerbaleManager.FirmaImpresaAsync(Token, _nomeFirmatario, pngBytes);
+            _firmaCompletata = true;
+        }
+        catch (FirmaTokenInvalidoException ex)
+        {
+            // Token consumato da un'altra tab fra il caricamento pagina e la conferma.
+            _tokenError = ex.Motivo;
+        }
+        catch (InvalidOperationException iex)
+        {
+            _errorMessage = iex.Message;
+        }
+        catch (Exception ex)
+        {
+            _errorMessage = $"Errore durante la firma: {ex.Message}";
+        }
+        finally
+        {
+            _signing = false;
+            StateHasChanged();
+        }
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        if (_module is not null)
+        {
+            try
+            {
+                await _module.InvokeVoidAsync("dispose", _canvasId);
+                await _module.DisposeAsync();
+            }
+            catch
+            {
+                // ignora errori in dispose (circuit gia' chiuso, ecc.)
+            }
+        }
+    }
+
+    private static string TokenErrorTitle(FirmaTokenInvalidoMotivo motivo) => motivo switch
+    {
+        FirmaTokenInvalidoMotivo.NonTrovato => "Link non valido",
+        FirmaTokenInvalidoMotivo.Scaduto => "Link scaduto",
+        FirmaTokenInvalidoMotivo.GiaUsato => "Link gia' utilizzato",
+        _ => "Link non utilizzabile",
+    };
+
+    private static string TokenErrorMessage(FirmaTokenInvalidoMotivo motivo) => motivo switch
+    {
+        FirmaTokenInvalidoMotivo.NonTrovato =>
+            "Il link non corrisponde a nessun verbale o non e' piu' attivo.",
+        FirmaTokenInvalidoMotivo.Scaduto =>
+            "Il link e' scaduto. Richiedi al CSE di generare un nuovo link.",
+        FirmaTokenInvalidoMotivo.GiaUsato =>
+            "Il link e' stato gia' usato per firmare. La firma e' gia' agli atti.",
+        _ => "Il link non puo' essere utilizzato.",
+    };
+
+    private static string LabelEsito(EsitoVerifica? e) => e switch
+    {
+        EsitoVerifica.Conforme => "Conforme",
+        EsitoVerifica.NcMinori => "Non conformita' minori",
+        EsitoVerifica.NcGravi => "Non conformita' gravi",
+        EsitoVerifica.Sospensione => "Sospensione attivita'",
+        _ => "—",
+    };
+}

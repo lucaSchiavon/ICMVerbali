@@ -391,6 +391,24 @@ SET Stato = @Stato,
     UpdatedAt = SYSUTCDATETIME()
 WHERE Id = @Id;";
 
+    private const string SqlUpdateVerbaleFirmaImpresa = @"
+UPDATE dbo.Verbale
+SET Stato = @Stato,
+    UpdatedAt = SYSUTCDATETIME()
+WHERE Id = @Id;";
+
+    private const string SqlInsertFirmaToken = @"
+INSERT INTO dbo.FirmaToken (Id, VerbaleId, Token, ScadenzaUtc, UsatoUtc, CreatedAt)
+VALUES (@Id, @VerbaleId, @Token, @ScadenzaUtc, NULL, @CreatedAt);";
+
+    // Uso singolo del token: l'UPDATE va a buon fine solo se UsatoUtc e' NULL.
+    // Se due tab aprono lo stesso link e firmano insieme, il secondo riceve 0
+    // righe modificate e il chiamante lo traduce in errore.
+    private const string SqlMarkTokenUsato = @"
+UPDATE dbo.FirmaToken
+SET UsatoUtc = SYSUTCDATETIME()
+WHERE Id = @Id AND UsatoUtc IS NULL;";
+
     public async Task<FirmaCseResult> FirmaCseAsync(
         Guid verbaleId,
         int anno,
@@ -398,6 +416,7 @@ WHERE Id = @Id;";
         DateOnly dataFirma,
         string immagineFirmaPath,
         Guid utenteId,
+        FirmaTokenInputs tokenImpresa,
         CancellationToken ct = default)
     {
         await using var conn = await _factory.CreateOpenConnectionAsync(ct);
@@ -456,8 +475,97 @@ WHERE Id = @Id;";
                 Note = (string?)$"Firma CSE: {nomeFirmatario}",
             }, transaction: tx, cancellationToken: ct));
 
+            // 6. INSERT FirmaToken (B.11): atomico con la firma CSE. Garantisce
+            // che ogni verbale FirmatoCse abbia immediatamente un magic-link
+            // utilizzabile dall'Impresa.
+            await conn.ExecuteAsync(new CommandDefinition(SqlInsertFirmaToken, new
+            {
+                Id = tokenImpresa.TokenId,
+                VerbaleId = verbaleId,
+                Token = tokenImpresa.Token,
+                ScadenzaUtc = tokenImpresa.ScadenzaUtc,
+                CreatedAt = tokenImpresa.CreatedAt,
+            }, transaction: tx, cancellationToken: ct));
+
             await tx.CommitAsync(ct);
-            return new FirmaCseResult(numero, anno);
+            return new FirmaCseResult(numero, anno, tokenImpresa.Token);
+        }
+        catch
+        {
+            await tx.RollbackAsync(ct);
+            throw;
+        }
+    }
+
+    // -------- firma Impresa (FirmatoCse -> FirmatoImpresa) --------------
+    // Pattern analogo a FirmaCseAsync ma piu' lineare: niente assegnazione
+    // Numero/Anno, niente UPDLOCK su MAX. L'UPDLOCK su SELECT Stato serializza
+    // comunque eventuali doppi click. Il MarkTokenUsato e' la difesa contro
+    // race "due tab aperte sullo stesso link".
+    public async Task FirmaImpresaAsync(
+        Guid verbaleId,
+        Guid tokenId,
+        string nomeFirmatario,
+        DateOnly dataFirma,
+        string immagineFirmaPath,
+        Guid utenteId,
+        CancellationToken ct = default)
+    {
+        await using var conn = await _factory.CreateOpenConnectionAsync(ct);
+        await using var tx = await conn.BeginTransactionAsync(ct);
+        try
+        {
+            // 1. Lock + verifica Stato == FirmatoCse.
+            var statoCorrente = await conn.QuerySingleOrDefaultAsync<byte?>(
+                new CommandDefinition(SqlSelectStatoForUpdate,
+                    new { Id = verbaleId },
+                    transaction: tx, cancellationToken: ct));
+            if (statoCorrente is null)
+                throw new InvalidOperationException($"Verbale {verbaleId} non trovato.");
+            if (statoCorrente != (byte)StatoVerbale.FirmatoCse)
+                throw new InvalidOperationException(
+                    $"Verbale {verbaleId} non e' in FirmatoCse (stato attuale: {(StatoVerbale)statoCorrente.Value}).");
+
+            // 2. Marca il token usato. Se l'UPDATE non tocca righe (UsatoUtc gia'
+            // valorizzato da un'altra tab che ha vinto la race), abortisci tutto.
+            var rows = await conn.ExecuteAsync(new CommandDefinition(SqlMarkTokenUsato,
+                new { Id = tokenId },
+                transaction: tx, cancellationToken: ct));
+            if (rows == 0)
+                throw new InvalidOperationException(
+                    $"Token {tokenId} gia' utilizzato (race tra firme concorrenti).");
+
+            // 3. INSERT in Firma con Tipo=ImpresaAppaltatrice.
+            await conn.ExecuteAsync(new CommandDefinition(SqlInsertFirma, new
+            {
+                Id = Guid.CreateVersion7(),
+                VerbaleId = verbaleId,
+                Tipo = TipoFirmatario.ImpresaAppaltatrice,
+                NomeFirmatario = nomeFirmatario,
+                DataFirma = dataFirma,
+                ImmagineFirmaPath = immagineFirmaPath,
+            }, transaction: tx, cancellationToken: ct));
+
+            // 4. UPDATE Verbale -> FirmatoImpresa (Numero/Anno NON cambiano).
+            await conn.ExecuteAsync(new CommandDefinition(SqlUpdateVerbaleFirmaImpresa, new
+            {
+                Id = verbaleId,
+                Stato = StatoVerbale.FirmatoImpresa,
+            }, transaction: tx, cancellationToken: ct));
+
+            // 5. Audit. UtenteId = CompilatoDaUtenteId del verbale (l'impresa non
+            // ha un account: vedi docs/01-design.md Addendum 2026-05-14 §7).
+            await conn.ExecuteAsync(new CommandDefinition(SqlInsertAudit, new
+            {
+                Id = Guid.CreateVersion7(),
+                VerbaleId = verbaleId,
+                UtenteId = utenteId,
+                DataEvento = DateTime.UtcNow,
+                EventoTipo = EventoAuditTipo.Firma,
+                Note = (string?)$"Firma applicata da Impresa via token {tokenId}: {nomeFirmatario}",
+            }, transaction: tx, cancellationToken: ct));
+
+            await tx.CommitAsync(ct);
         }
         catch
         {

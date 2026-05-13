@@ -2,6 +2,7 @@ using Dapper;
 using ICMVerbali.Web.Entities;
 using ICMVerbali.Web.Entities.Enums;
 using ICMVerbali.Web.Repositories;
+using ICMVerbali.Web.Repositories.Interfaces;
 
 namespace ICMVerbali.Tests.Repositories;
 
@@ -488,7 +489,8 @@ public class VerbaleRepositoryTests
                 verbaleId, anno, "Ing. Test Firmatario",
                 DateOnly.FromDateTime(DateTime.UtcNow),
                 $"firme/{verbaleId}/cse.png",
-                anagrafiche.UtenteId);
+                anagrafiche.UtenteId,
+                BuildTokenInputs());
 
             Assert.Equal(maxPrima + 1, result.NumeroAssegnato);
             Assert.Equal(anno, result.Anno);
@@ -553,10 +555,10 @@ public class VerbaleRepositoryTests
 
             var r1 = await verbaleRepo.FirmaCseAsync(
                 v1, anno, "Firmatario A", DateOnly.FromDateTime(DateTime.UtcNow),
-                $"firme/{v1}/cse.png", anagrafiche.UtenteId);
+                $"firme/{v1}/cse.png", anagrafiche.UtenteId, BuildTokenInputs());
             var r2 = await verbaleRepo.FirmaCseAsync(
                 v2, anno, "Firmatario B", DateOnly.FromDateTime(DateTime.UtcNow),
-                $"firme/{v2}/cse.png", anagrafiche.UtenteId);
+                $"firme/{v2}/cse.png", anagrafiche.UtenteId, BuildTokenInputs());
 
             Assert.Equal(r1.NumeroAssegnato + 1, r2.NumeroAssegnato);
             Assert.Equal(anno, r1.Anno);
@@ -599,13 +601,234 @@ public class VerbaleRepositoryTests
             // Prima firma OK.
             await verbaleRepo.FirmaCseAsync(
                 verbaleId, anno, "Firmatario", DateOnly.FromDateTime(DateTime.UtcNow),
-                $"firme/{verbaleId}/cse.png", anagrafiche.UtenteId);
+                $"firme/{verbaleId}/cse.png", anagrafiche.UtenteId, BuildTokenInputs());
 
             // Seconda firma: il verbale e' FirmatoCse, non Bozza → eccezione.
             await Assert.ThrowsAsync<InvalidOperationException>(() =>
                 verbaleRepo.FirmaCseAsync(
                     verbaleId, anno, "Firmatario", DateOnly.FromDateTime(DateTime.UtcNow),
-                    $"firme/{verbaleId}/cse.png", anagrafiche.UtenteId));
+                    $"firme/{verbaleId}/cse.png", anagrafiche.UtenteId, BuildTokenInputs()));
+        }
+        finally
+        {
+            await CleanupAsync(verbaleId, anagrafiche);
+        }
+    }
+
+    // --------- firma Impresa (B.11) --------------------------------------
+
+    [Fact]
+    public async Task FirmaCseAsync_inserisce_anche_FirmaToken_con_UsatoUtc_null()
+    {
+        var verbaleRepo = new VerbaleRepository(_factory);
+        var anagrafiche = await SeedAnagraficheAsync();
+        var verbaleId = Guid.CreateVersion7();
+        var verbale = BuildBozza(verbaleId, anagrafiche);
+        var audit = new VerbaleAudit
+        {
+            Id = Guid.CreateVersion7(),
+            VerbaleId = verbaleId,
+            UtenteId = anagrafiche.UtenteId,
+            DataEvento = DateTime.UtcNow,
+            EventoTipo = EventoAuditTipo.Creazione,
+        };
+        var tokenInputs = BuildTokenInputs();
+
+        try
+        {
+            await verbaleRepo.CreateBozzaWithChildrenAsync(
+                verbale,
+                Array.Empty<VerbaleAttivita>(),
+                Array.Empty<VerbaleDocumento>(),
+                Array.Empty<VerbaleApprestamento>(),
+                Array.Empty<VerbaleCondizioneAmbientale>(),
+                audit);
+
+            var result = await verbaleRepo.FirmaCseAsync(
+                verbaleId, DateTime.UtcNow.Year, "Firmatario CSE",
+                DateOnly.FromDateTime(DateTime.UtcNow),
+                $"firme/{verbaleId}/cse.png", anagrafiche.UtenteId, tokenInputs);
+
+            // Il TokenImpresa ritornato e' lo stesso passato in input.
+            Assert.Equal(tokenInputs.Token, result.TokenImpresa);
+
+            // Riga FirmaToken esiste con UsatoUtc null e scadenza coerente.
+            await using var conn = await _factory.CreateOpenConnectionAsync();
+            var token = await conn.QuerySingleAsync<(Guid Id, Guid VerbaleId, Guid Token, DateTime? UsatoUtc, DateTime ScadenzaUtc)>(
+                "SELECT Id, VerbaleId, Token, UsatoUtc, ScadenzaUtc FROM dbo.FirmaToken WHERE VerbaleId = @V;",
+                new { V = verbaleId });
+            Assert.Equal(tokenInputs.TokenId, token.Id);
+            Assert.Equal(tokenInputs.Token, token.Token);
+            Assert.Null(token.UsatoUtc);
+        }
+        finally
+        {
+            await CleanupAsync(verbaleId, anagrafiche);
+        }
+    }
+
+    [Fact]
+    public async Task FirmaImpresaAsync_su_FirmatoCse_passa_a_FirmatoImpresa_e_marca_token_usato()
+    {
+        var verbaleRepo = new VerbaleRepository(_factory);
+        var firmaRepo = new FirmaRepository(_factory);
+        var anagrafiche = await SeedAnagraficheAsync();
+        var verbaleId = Guid.CreateVersion7();
+        var verbale = BuildBozza(verbaleId, anagrafiche);
+        var creazioneAudit = new VerbaleAudit
+        {
+            Id = Guid.CreateVersion7(),
+            VerbaleId = verbaleId,
+            UtenteId = anagrafiche.UtenteId,
+            DataEvento = DateTime.UtcNow,
+            EventoTipo = EventoAuditTipo.Creazione,
+        };
+        var tokenInputs = BuildTokenInputs();
+
+        try
+        {
+            await verbaleRepo.CreateBozzaWithChildrenAsync(
+                verbale,
+                Array.Empty<VerbaleAttivita>(),
+                Array.Empty<VerbaleDocumento>(),
+                Array.Empty<VerbaleApprestamento>(),
+                Array.Empty<VerbaleCondizioneAmbientale>(),
+                creazioneAudit);
+
+            var firmaCse = await verbaleRepo.FirmaCseAsync(
+                verbaleId, DateTime.UtcNow.Year, "Firmatario CSE",
+                DateOnly.FromDateTime(DateTime.UtcNow),
+                $"firme/{verbaleId}/cse.png", anagrafiche.UtenteId, tokenInputs);
+
+            // Sanity: verbale a FirmatoCse, Numero/Anno assegnati.
+            var letturaPre = await verbaleRepo.GetByIdAsync(verbaleId);
+            Assert.Equal(StatoVerbale.FirmatoCse, letturaPre!.Stato);
+
+            await verbaleRepo.FirmaImpresaAsync(
+                verbaleId, tokenInputs.TokenId, "Firmatario Impresa",
+                DateOnly.FromDateTime(DateTime.UtcNow),
+                $"firme/{verbaleId}/impresa.png", anagrafiche.UtenteId);
+
+            var letturaPost = await verbaleRepo.GetByIdAsync(verbaleId);
+            Assert.Equal(StatoVerbale.FirmatoImpresa, letturaPost!.Stato);
+
+            // Numero/Anno NON cambiano dopo la firma impresa.
+            Assert.Equal(firmaCse.NumeroAssegnato, letturaPost.Numero);
+            Assert.Equal(firmaCse.Anno, letturaPost.Anno);
+
+            // Esiste una firma Impresa, oltre alla CSE.
+            var firmaImpresa = await firmaRepo.GetByVerbaleAndTipoAsync(
+                verbaleId, TipoFirmatario.ImpresaAppaltatrice);
+            Assert.NotNull(firmaImpresa);
+            Assert.Equal("Firmatario Impresa", firmaImpresa!.NomeFirmatario);
+
+            // Token marcato usato.
+            await using var conn = await _factory.CreateOpenConnectionAsync();
+            var usato = await conn.ExecuteScalarAsync<DateTime?>(
+                "SELECT UsatoUtc FROM dbo.FirmaToken WHERE Id = @Id;",
+                new { Id = tokenInputs.TokenId });
+            Assert.NotNull(usato);
+
+            // Audit: Creazione + Firma CSE + Firma Impresa = 3.
+            var auditCount = await conn.QuerySingleAsync<int>(
+                "SELECT COUNT(*) FROM dbo.VerbaleAudit WHERE VerbaleId = @V;",
+                new { V = verbaleId });
+            Assert.Equal(3, auditCount);
+        }
+        finally
+        {
+            await CleanupAsync(verbaleId, anagrafiche);
+        }
+    }
+
+    [Fact]
+    public async Task FirmaImpresaAsync_su_verbale_in_bozza_lancia_InvalidOperationException()
+    {
+        var verbaleRepo = new VerbaleRepository(_factory);
+        var anagrafiche = await SeedAnagraficheAsync();
+        var verbaleId = Guid.CreateVersion7();
+        var verbale = BuildBozza(verbaleId, anagrafiche);
+        var audit = new VerbaleAudit
+        {
+            Id = Guid.CreateVersion7(),
+            VerbaleId = verbaleId,
+            UtenteId = anagrafiche.UtenteId,
+            DataEvento = DateTime.UtcNow,
+            EventoTipo = EventoAuditTipo.Creazione,
+        };
+
+        try
+        {
+            await verbaleRepo.CreateBozzaWithChildrenAsync(
+                verbale,
+                Array.Empty<VerbaleAttivita>(),
+                Array.Empty<VerbaleDocumento>(),
+                Array.Empty<VerbaleApprestamento>(),
+                Array.Empty<VerbaleCondizioneAmbientale>(),
+                audit);
+
+            // Verbale in Bozza (mai firmato CSE): la firma impresa non puo' avvenire.
+            await Assert.ThrowsAsync<InvalidOperationException>(() =>
+                verbaleRepo.FirmaImpresaAsync(
+                    verbaleId, Guid.CreateVersion7(), "X",
+                    DateOnly.FromDateTime(DateTime.UtcNow),
+                    "irrilevante.png", anagrafiche.UtenteId));
+        }
+        finally
+        {
+            await CleanupAsync(verbaleId, anagrafiche);
+        }
+    }
+
+    [Fact]
+    public async Task FirmaImpresaAsync_token_gia_usato_lancia_InvalidOperationException()
+    {
+        var verbaleRepo = new VerbaleRepository(_factory);
+        var anagrafiche = await SeedAnagraficheAsync();
+        var verbaleId = Guid.CreateVersion7();
+        var verbale = BuildBozza(verbaleId, anagrafiche);
+        var audit = new VerbaleAudit
+        {
+            Id = Guid.CreateVersion7(),
+            VerbaleId = verbaleId,
+            UtenteId = anagrafiche.UtenteId,
+            DataEvento = DateTime.UtcNow,
+            EventoTipo = EventoAuditTipo.Creazione,
+        };
+        var tokenInputs = BuildTokenInputs();
+
+        try
+        {
+            await verbaleRepo.CreateBozzaWithChildrenAsync(
+                verbale,
+                Array.Empty<VerbaleAttivita>(),
+                Array.Empty<VerbaleDocumento>(),
+                Array.Empty<VerbaleApprestamento>(),
+                Array.Empty<VerbaleCondizioneAmbientale>(),
+                audit);
+
+            await verbaleRepo.FirmaCseAsync(
+                verbaleId, DateTime.UtcNow.Year, "Firmatario CSE",
+                DateOnly.FromDateTime(DateTime.UtcNow),
+                $"firme/{verbaleId}/cse.png", anagrafiche.UtenteId, tokenInputs);
+
+            // Forzo UsatoUtc != null per simulare "token gia' usato da un'altra tab".
+            await using var conn = await _factory.CreateOpenConnectionAsync();
+            await conn.ExecuteAsync(
+                "UPDATE dbo.FirmaToken SET UsatoUtc = SYSUTCDATETIME() WHERE Id = @Id;",
+                new { Id = tokenInputs.TokenId });
+
+            // Riprova firma impresa: lo stato e' FirmatoCse, ma il token e' marcato usato.
+            // Il MarkTokenUsato (UPDATE ... WHERE UsatoUtc IS NULL) non tocca righe e abortisce.
+            await Assert.ThrowsAsync<InvalidOperationException>(() =>
+                verbaleRepo.FirmaImpresaAsync(
+                    verbaleId, tokenInputs.TokenId, "Firmatario Impresa",
+                    DateOnly.FromDateTime(DateTime.UtcNow),
+                    "firme/x/impresa.png", anagrafiche.UtenteId));
+
+            // Lo stato del verbale non deve essere cambiato dalla transazione rollbackata.
+            var read = await verbaleRepo.GetByIdAsync(verbaleId);
+            Assert.Equal(StatoVerbale.FirmatoCse, read!.Stato);
         }
         finally
         {
@@ -677,6 +900,13 @@ public class VerbaleRepositoryTests
         IsDeleted = false,
         DeletedAt = null,
     };
+
+    private static FirmaTokenInputs BuildTokenInputs()
+        => new(
+            TokenId: Guid.CreateVersion7(),
+            Token: Guid.CreateVersion7(),
+            ScadenzaUtc: DateTime.UtcNow.AddHours(48),
+            CreatedAt: DateTime.UtcNow);
 
     private async Task<Guid> GetFirstCatalogoIdAsync(string tableName)
     {

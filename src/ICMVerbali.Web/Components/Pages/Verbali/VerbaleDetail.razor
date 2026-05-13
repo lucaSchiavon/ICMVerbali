@@ -1,0 +1,425 @@
+@*
+    Detail view read-only di un verbale firmato (B.11). Mostra tutti i dati del
+    verbale + entrambe le firme renderizzate via /api/firme/{id}/{tipo} (endpoint
+    autenticato). Bottoni: "Indietro" e "Stampa" (window.print() con CSS print).
+    Linkata dalla Home per verbali con Stato != Bozza.
+*@
+
+@page "/verbali/{Id:guid}"
+@attribute [Authorize]
+@rendermode InteractiveServer
+
+@using ICMVerbali.Web.Entities
+@using ICMVerbali.Web.Entities.Enums
+@using ICMVerbali.Web.Managers.Interfaces
+@using ICMVerbali.Web.Models
+@using ICMVerbali.Web.Repositories.Interfaces
+
+@inject IVerbaleManager VerbaleManager
+@inject ICantiereManager CantiereManager
+@inject ICommittenteManager CommittenteManager
+@inject IImpresaAppaltatriceManager ImpresaManager
+@inject IPersonaManager PersonaManager
+@inject IFotoManager FotoManager
+@inject IFirmaRepository FirmaRepo
+@inject NavigationManager Nav
+@inject IJSRuntime JS
+
+<PageTitle>@(_verbale is null ? "Verbale" : $"Verbale {FormatNumero()}")</PageTitle>
+
+<MudContainer MaxWidth="MaxWidth.Large" Class="mt-4">
+
+    @if (_loading)
+    {
+        <MudProgressLinear Indeterminate="true" />
+    }
+    else if (_verbale is null)
+    {
+        <MudAlert Severity="Severity.Error" Variant="Variant.Outlined">
+            Verbale non trovato.
+        </MudAlert>
+    }
+    else
+    {
+        <MudStack Row="true" Justify="Justify.SpaceBetween" Class="mb-3 no-print">
+            <MudButton Variant="Variant.Text"
+                       StartIcon="@Icons.Material.Filled.ArrowBack"
+                       OnClick="@(() => Nav.NavigateTo("/"))">
+                Torna alla lista
+            </MudButton>
+            <MudButton Variant="Variant.Filled" Color="Color.Primary"
+                       StartIcon="@Icons.Material.Filled.Print"
+                       OnClick="HandlePrint">
+                Stampa
+            </MudButton>
+        </MudStack>
+
+        @* --- Header ------------------------------------------------------ *@
+        <MudPaper Class="pa-4 mb-3" Elevation="1">
+            <MudStack Row="true" Justify="Justify.SpaceBetween" AlignItems="AlignItems.Center">
+                <div>
+                    <MudText Typo="Typo.h4">VERBALE @FormatNumero()</MudText>
+                    <MudText Typo="Typo.body2" Class="text-disabled">
+                        del @_verbale.Data.ToString("dd/MM/yyyy")
+                    </MudText>
+                </div>
+                <MudChip T="string" Color="@StatoColor(_verbale.Stato)" Size="Size.Large">
+                    @StatoLabel(_verbale.Stato)
+                </MudChip>
+            </MudStack>
+        </MudPaper>
+
+        @* --- 1. Anagrafica ---------------------------------------------- *@
+        <MudPaper Class="pa-4 mb-3" Elevation="1">
+            <MudText Typo="Typo.subtitle1" Class="mb-2"><strong>1. Anagrafica</strong></MudText>
+            <MudGrid Spacing="2">
+                <MudItem xs="12" sm="6"><strong>Cantiere:</strong> @(_cantiere?.Ubicazione ?? "—")</MudItem>
+                <MudItem xs="12" sm="6"><strong>Committente:</strong> @(_committente?.RagioneSociale ?? "—")</MudItem>
+                <MudItem xs="12" sm="6"><strong>Impresa appaltatrice:</strong> @(_impresa?.RagioneSociale ?? "—")</MudItem>
+                <MudItem xs="12" sm="6"><strong>RL:</strong> @(_rl?.Nominativo ?? "—")</MudItem>
+                <MudItem xs="12" sm="6"><strong>CSP:</strong> @(_csp?.Nominativo ?? "—")</MudItem>
+                <MudItem xs="12" sm="6"><strong>CSE:</strong> @(_cse?.Nominativo ?? "—")</MudItem>
+                <MudItem xs="12" sm="6"><strong>DL:</strong> @(_dl?.Nominativo ?? "—")</MudItem>
+            </MudGrid>
+        </MudPaper>
+
+        @* --- 2. Esito / meteo ------------------------------------------- *@
+        <MudPaper Class="pa-4 mb-3" Elevation="1">
+            <MudText Typo="Typo.subtitle1" Class="mb-2"><strong>2. Esito e meteo</strong></MudText>
+            <MudGrid Spacing="2">
+                <MudItem xs="12" sm="4"><strong>Esito:</strong> @LabelEsito(_verbale.Esito)</MudItem>
+                <MudItem xs="12" sm="4"><strong>Meteo:</strong> @LabelMeteo(_verbale.Meteo)</MudItem>
+                <MudItem xs="12" sm="4"><strong>Temperatura:</strong> @(_verbale.TemperaturaCelsius?.ToString() ?? "—") °C</MudItem>
+            </MudGrid>
+        </MudPaper>
+
+        @* --- 3. Attività ----------------------------------------------- *@
+        var attivitaSel = _attivita.Where(a => a.Selezionato).ToList();
+        if (attivitaSel.Count > 0)
+        {
+            <MudPaper Class="pa-4 mb-3" Elevation="1">
+                <MudText Typo="Typo.subtitle1" Class="mb-2"><strong>3. Attività in corso</strong></MudText>
+                <MudList T="string" Dense="true">
+                    @foreach (var a in attivitaSel)
+                    {
+                        <MudListItem T="string" Icon="@Icons.Material.Filled.Check">
+                            @a.Etichetta@(IsAltro(a.Codice) && !string.IsNullOrWhiteSpace(a.AltroDescrizione) ? $" — {a.AltroDescrizione}" : "")
+                        </MudListItem>
+                    }
+                </MudList>
+            </MudPaper>
+        }
+
+        @* --- 4. Documenti ---------------------------------------------- *@
+        var docAppl = _documenti.Where(d => d.Applicabile).ToList();
+        if (docAppl.Count > 0)
+        {
+            <MudPaper Class="pa-4 mb-3" Elevation="1">
+                <MudText Typo="Typo.subtitle1" Class="mb-2"><strong>4. Documenti</strong></MudText>
+                <MudSimpleTable Dense="true" Hover="true">
+                    <thead><tr><th>Documento</th><th>CONF</th><th>Note</th></tr></thead>
+                    <tbody>
+                    @foreach (var d in docAppl)
+                    {
+                        <tr>
+                            <td>@d.Etichetta@(IsAltro(d.Codice) && !string.IsNullOrWhiteSpace(d.AltroDescrizione) ? $" — {d.AltroDescrizione}" : "")</td>
+                            <td>@(d.Conforme ? "Sì" : "No")</td>
+                            <td>@(d.Note ?? "")</td>
+                        </tr>
+                    }
+                    </tbody>
+                </MudSimpleTable>
+            </MudPaper>
+        }
+
+        @* --- 5. Apprestamenti ------------------------------------------ *@
+        var apprAppl = _apprestamenti.Where(a => a.Applicabile).ToList();
+        if (apprAppl.Count > 0)
+        {
+            <MudPaper Class="pa-4 mb-3" Elevation="1">
+                <MudText Typo="Typo.subtitle1" Class="mb-2"><strong>5. Apprestamenti</strong></MudText>
+                @foreach (var gruppo in apprAppl.GroupBy(a => a.Sottosezione).OrderBy(g => g.Key))
+                {
+                    <MudText Typo="Typo.body2" Class="mt-3 mb-1"><strong>@LabelSottosezione(gruppo.Key)</strong></MudText>
+                    <MudSimpleTable Dense="true" Hover="true">
+                        <thead><tr><th>Apprestamento</th><th>CONF</th><th>Note</th></tr></thead>
+                        <tbody>
+                        @foreach (var a in gruppo)
+                        {
+                            <tr>
+                                <td>@a.Etichetta</td>
+                                <td>@(a.Conforme ? "Sì" : "No")</td>
+                                <td>@(a.Note ?? "")</td>
+                            </tr>
+                        }
+                        </tbody>
+                    </MudSimpleTable>
+                }
+            </MudPaper>
+        }
+
+        @* --- 6. Condizioni ambientali ---------------------------------- *@
+        var condValutate = _condizioni.Where(c => c.Conforme || c.NonConforme).ToList();
+        if (condValutate.Count > 0)
+        {
+            <MudPaper Class="pa-4 mb-3" Elevation="1">
+                <MudText Typo="Typo.subtitle1" Class="mb-2"><strong>6. Condizioni ambientali</strong></MudText>
+                <MudSimpleTable Dense="true" Hover="true">
+                    <thead><tr><th>Condizione</th><th>Esito</th><th>Note</th></tr></thead>
+                    <tbody>
+                    @foreach (var c in condValutate)
+                    {
+                        <tr>
+                            <td>@c.Etichetta</td>
+                            <td>@(c.Conforme ? "Conforme" : "Non conforme")</td>
+                            <td>@(c.Note ?? "")</td>
+                        </tr>
+                    }
+                    </tbody>
+                </MudSimpleTable>
+            </MudPaper>
+        }
+
+        @* --- 7. Interferenze ------------------------------------------- *@
+        <MudPaper Class="pa-4 mb-3" Elevation="1">
+            <MudText Typo="Typo.subtitle1" Class="mb-2"><strong>7. Interferenze</strong></MudText>
+            <MudText><strong>Gestione:</strong> @LabelInterferenze(_verbale.Interferenze)</MudText>
+            @if (!string.IsNullOrWhiteSpace(_verbale.InterferenzeNote))
+            {
+                <MudText Class="mt-2"><strong>Note:</strong> @_verbale.InterferenzeNote</MudText>
+            }
+        </MudPaper>
+
+        @* --- 8. Prescrizioni ------------------------------------------- *@
+        @if (_prescrizioni.Count > 0)
+        {
+            <MudPaper Class="pa-4 mb-3" Elevation="1">
+                <MudText Typo="Typo.subtitle1" Class="mb-2"><strong>8. Prescrizioni e osservazioni</strong></MudText>
+                <MudList T="string" Dense="true">
+                    @foreach (var p in _prescrizioni)
+                    {
+                        <MudListItem T="string">
+                            <strong>@p.Ordine.</strong> @p.Testo
+                        </MudListItem>
+                    }
+                </MudList>
+            </MudPaper>
+        }
+
+        @* --- 9. Foto --------------------------------------------------- *@
+        @if (_foto.Count > 0)
+        {
+            <MudPaper Class="pa-4 mb-3" Elevation="1">
+                <MudText Typo="Typo.subtitle1" Class="mb-2"><strong>9. Foto</strong></MudText>
+                <MudGrid Spacing="1">
+                    @foreach (var f in _foto)
+                    {
+                        <MudItem xs="6" sm="4" md="3" @key="f.Id">
+                            <div style="position: relative; width: 100%; aspect-ratio: 1/1; overflow: hidden; background: var(--mud-palette-background-grey);">
+                                <img src="@($"/api/foto/{f.Id}/thumb")"
+                                     alt="@(f.Didascalia ?? $"Foto {f.Ordine}")"
+                                     style="width: 100%; height: 100%; object-fit: cover; display: block;" />
+                            </div>
+                            @if (!string.IsNullOrWhiteSpace(f.Didascalia))
+                            {
+                                <MudText Typo="Typo.caption" Class="d-block mt-1">@f.Didascalia</MudText>
+                            }
+                        </MudItem>
+                    }
+                </MudGrid>
+            </MudPaper>
+        }
+
+        @* --- 10. Firme ------------------------------------------------- *@
+        <MudPaper Class="pa-4 mb-3" Elevation="1">
+            <MudText Typo="Typo.subtitle1" Class="mb-2"><strong>10. Firme</strong></MudText>
+            <MudGrid Spacing="3">
+                <MudItem xs="12" md="6">
+                    <MudText Typo="Typo.body2"><strong>Coordinatore della Sicurezza in fase di Esecuzione (CSE)</strong></MudText>
+                    @if (_firmaCse is not null)
+                    {
+                        <MudText Typo="Typo.body2" Class="mb-1">
+                            @_firmaCse.NomeFirmatario — @_firmaCse.DataFirma.ToString("dd/MM/yyyy")
+                        </MudText>
+                        <div style="border: 1px solid var(--mud-palette-lines-default); border-radius: 4px; padding: 8px; background: #fff;">
+                            <img src="@($"/api/firme/{_verbale.Id}/cse")"
+                                 alt="Firma CSE"
+                                 style="display: block; max-width: 100%; height: auto;" />
+                        </div>
+                    }
+                    else
+                    {
+                        <MudText Typo="Typo.body2" Class="text-disabled">Non ancora firmato.</MudText>
+                    }
+                </MudItem>
+                <MudItem xs="12" md="6">
+                    <MudText Typo="Typo.body2"><strong>Impresa Appaltatrice</strong></MudText>
+                    @if (_firmaImpresa is not null)
+                    {
+                        <MudText Typo="Typo.body2" Class="mb-1">
+                            @_firmaImpresa.NomeFirmatario — @_firmaImpresa.DataFirma.ToString("dd/MM/yyyy")
+                        </MudText>
+                        <div style="border: 1px solid var(--mud-palette-lines-default); border-radius: 4px; padding: 8px; background: #fff;">
+                            <img src="@($"/api/firme/{_verbale.Id}/impresa")"
+                                 alt="Firma Impresa"
+                                 style="display: block; max-width: 100%; height: auto;" />
+                        </div>
+                    }
+                    else
+                    {
+                        <MudText Typo="Typo.body2" Class="text-disabled">In attesa di firma dell'Impresa.</MudText>
+                    }
+                </MudItem>
+            </MudGrid>
+        </MudPaper>
+    }
+</MudContainer>
+
+<style>
+    @@media print {
+        .no-print { display: none !important; }
+        .mud-appbar, .mud-drawer { display: none !important; }
+        .mud-main-content { padding: 0 !important; margin: 0 !important; }
+    }
+</style>
+
+@code {
+    [Parameter] public Guid Id { get; set; }
+
+    private bool _loading = true;
+    private Verbale? _verbale;
+    private Cantiere? _cantiere;
+    private Committente? _committente;
+    private ImpresaAppaltatrice? _impresa;
+    private Persona? _rl;
+    private Persona? _csp;
+    private Persona? _cse;
+    private Persona? _dl;
+
+    private IReadOnlyList<VerbaleAttivitaItem> _attivita = Array.Empty<VerbaleAttivitaItem>();
+    private IReadOnlyList<VerbaleDocumentoItem> _documenti = Array.Empty<VerbaleDocumentoItem>();
+    private IReadOnlyList<VerbaleApprestamentoItem> _apprestamenti = Array.Empty<VerbaleApprestamentoItem>();
+    private IReadOnlyList<VerbaleCondizioneAmbientaleItem> _condizioni = Array.Empty<VerbaleCondizioneAmbientaleItem>();
+    private IReadOnlyList<PrescrizioneCse> _prescrizioni = Array.Empty<PrescrizioneCse>();
+    private IReadOnlyList<Foto> _foto = Array.Empty<Foto>();
+    private Firma? _firmaCse;
+    private Firma? _firmaImpresa;
+
+    protected override async Task OnInitializedAsync()
+    {
+        _verbale = await VerbaleManager.GetAsync(Id);
+        if (_verbale is null)
+        {
+            _loading = false;
+            return;
+        }
+
+        var cantiereTask = CantiereManager.GetAsync(_verbale.CantiereId);
+        var committenteTask = CommittenteManager.GetAsync(_verbale.CommittenteId);
+        var impresaTask = ImpresaManager.GetAsync(_verbale.ImpresaAppaltatriceId);
+        var rlTask = PersonaManager.GetAsync(_verbale.RlPersonaId);
+        var cspTask = PersonaManager.GetAsync(_verbale.CspPersonaId);
+        var cseTask = PersonaManager.GetAsync(_verbale.CsePersonaId);
+        var dlTask = PersonaManager.GetAsync(_verbale.DlPersonaId);
+
+        var attivitaTask = VerbaleManager.GetAttivitaAsync(_verbale.Id);
+        var documentiTask = VerbaleManager.GetDocumentiAsync(_verbale.Id);
+        var apprestamentiTask = VerbaleManager.GetApprestamentiAsync(_verbale.Id);
+        var condizioniTask = VerbaleManager.GetCondizioniAsync(_verbale.Id);
+        var prescrizioniTask = VerbaleManager.GetPrescrizioniAsync(_verbale.Id);
+        var fotoTask = FotoManager.GetByVerbaleAsync(_verbale.Id);
+        var firmeTask = FirmaRepo.GetByVerbaleAsync(_verbale.Id);
+
+        await Task.WhenAll(
+            cantiereTask, committenteTask, impresaTask,
+            rlTask, cspTask, cseTask, dlTask,
+            attivitaTask, documentiTask, apprestamentiTask, condizioniTask,
+            prescrizioniTask, fotoTask, firmeTask);
+
+        _cantiere = cantiereTask.Result;
+        _committente = committenteTask.Result;
+        _impresa = impresaTask.Result;
+        _rl = rlTask.Result;
+        _csp = cspTask.Result;
+        _cse = cseTask.Result;
+        _dl = dlTask.Result;
+        _attivita = attivitaTask.Result;
+        _documenti = documentiTask.Result;
+        _apprestamenti = apprestamentiTask.Result;
+        _condizioni = condizioniTask.Result;
+        _prescrizioni = prescrizioniTask.Result;
+        _foto = fotoTask.Result;
+
+        var firme = firmeTask.Result;
+        _firmaCse = firme.FirstOrDefault(f => f.Tipo == TipoFirmatario.Cse);
+        _firmaImpresa = firme.FirstOrDefault(f => f.Tipo == TipoFirmatario.ImpresaAppaltatrice);
+
+        _loading = false;
+    }
+
+    private async Task HandlePrint()
+    {
+        await JS.InvokeVoidAsync("window.print");
+    }
+
+    private string FormatNumero()
+        => _verbale!.Numero.HasValue && _verbale.Anno.HasValue
+            ? $"N. {_verbale.Numero}/{_verbale.Anno}"
+            : "(senza numero)";
+
+    private static bool IsAltro(string? codice)
+        => codice is not null && codice.EndsWith("_ALTRO", StringComparison.OrdinalIgnoreCase);
+
+    private static string StatoLabel(StatoVerbale stato) => stato switch
+    {
+        StatoVerbale.Bozza => "Bozza",
+        StatoVerbale.FirmatoCse => "Firmato CSE",
+        StatoVerbale.FirmatoImpresa => "Firmato Impresa",
+        StatoVerbale.Chiuso => "Chiuso",
+        _ => stato.ToString(),
+    };
+
+    private static Color StatoColor(StatoVerbale stato) => stato switch
+    {
+        StatoVerbale.Bozza => Color.Default,
+        StatoVerbale.FirmatoCse => Color.Info,
+        StatoVerbale.FirmatoImpresa => Color.Success,
+        StatoVerbale.Chiuso => Color.Tertiary,
+        _ => Color.Default,
+    };
+
+    private static string LabelEsito(EsitoVerifica? e) => e switch
+    {
+        EsitoVerifica.Conforme => "Conforme",
+        EsitoVerifica.NcMinori => "Non conformità minori",
+        EsitoVerifica.NcGravi => "Non conformità gravi",
+        EsitoVerifica.Sospensione => "Sospensione attività",
+        _ => "—",
+    };
+
+    private static string LabelMeteo(CondizioneMeteo? m) => m switch
+    {
+        CondizioneMeteo.Sereno => "Sereno",
+        CondizioneMeteo.Nuvoloso => "Nuvoloso",
+        CondizioneMeteo.Pioggia => "Pioggia",
+        CondizioneMeteo.Neve => "Neve",
+        _ => "—",
+    };
+
+    private static string LabelInterferenze(GestioneInterferenze? g) => g switch
+    {
+        GestioneInterferenze.Nessuna => "Nessuna",
+        GestioneInterferenze.InterneAlCantiere => "Interne al cantiere",
+        GestioneInterferenze.ConAreeEsterne => "Con aree esterne",
+        _ => "—",
+    };
+
+    private static string LabelSottosezione(SottosezioneApprestamento s) => s switch
+    {
+        SottosezioneApprestamento.Organizzazione => "5.1 Organizzazione del cantiere",
+        SottosezioneApprestamento.CaduteDallAlto => "5.2 Cadute dall'alto",
+        SottosezioneApprestamento.EmergenzeEDpi => "5.3 Emergenze e DPI",
+        SottosezioneApprestamento.Impianti => "5.4 Impianti",
+        _ => s.ToString(),
+    };
+}

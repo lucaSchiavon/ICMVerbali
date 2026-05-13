@@ -101,12 +101,29 @@ public interface IVerbaleManager
     // -------- firma CSE (Bozza -> FirmatoCse) ----------------------------
     // Orchestrazione: valida hard (anagrafiche + esito + meteo), salva PNG su
     // storage, chiama repo.FirmaCseAsync (transazione: assegna Numero/Anno +
-    // insert Firma + UPDATE Stato + audit). VerbaleNonFirmabileException se la
-    // validazione fallisce; InvalidOperationException se il verbale non e' in Bozza.
+    // insert Firma + UPDATE Stato + audit + emette FirmaToken per l'Impresa).
+    // VerbaleNonFirmabileException se la validazione fallisce;
+    // InvalidOperationException se il verbale non e' in Bozza.
+    // Il TokenImpresa nel FirmaCseResult e' il GUID da mettere nell'URL del
+    // magic-link condiviso con l'Impresa.
     Task<Repositories.Interfaces.FirmaCseResult> FirmaCseAsync(
         Guid verbaleId,
         string nomeFirmatario,
         byte[] pngBytes,
         Guid utenteId,
+        CancellationToken ct = default);
+
+    // -------- firma Impresa (FirmatoCse -> FirmatoImpresa) ---------------
+    // Flusso B.11 dalla pagina pubblica /firma-impresa/{token}. Step:
+    // 1. Valida token via IFirmaTokenManager (lancia FirmaTokenInvalidoException).
+    // 2. Carica verbale, verifica Stato == FirmatoCse.
+    // 3. Salva PNG su storage (path firme/{verbaleId}/impresa.png).
+    // 4. Chiama repo.FirmaImpresaAsync (transazione: insert Firma + UPDATE Stato
+    //    + audit + mark token usato).
+    // UtenteId per l'audit = CompilatoDaUtenteId del verbale.
+    Task FirmaImpresaAsync(
+        Guid token,
+        string nomeFirmatario,
+        byte[] pngBytes,
         CancellationToken ct = default);
 }

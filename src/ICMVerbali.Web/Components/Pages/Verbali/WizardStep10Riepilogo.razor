@@ -336,9 +336,28 @@
 
             if (result is { Canceled: false, Data: FirmaCseResult firma })
             {
-                Snackbar.Add(
-                    $"Verbale firmato. Numero assegnato: {firma.NumeroAssegnato}/{firma.Anno}.",
-                    Severity.Success);
+                // B.11: dialog dedicato con magic-link per la firma Impresa.
+                // BaseUri da NavigationManager (es. "https://app/" senza path); aggiungo
+                // direttamente il segmento /firma-impresa/{token}.
+                var linkUrl = $"{Nav.BaseUri}firma-impresa/{firma.TokenImpresa}";
+                var linkParams = new DialogParameters
+                {
+                    [nameof(LinkImpresaDialog.LinkUrl)] = linkUrl,
+                    [nameof(LinkImpresaDialog.Numero)] = firma.NumeroAssegnato,
+                    [nameof(LinkImpresaDialog.Anno)] = firma.Anno,
+                };
+                var linkOptions = new DialogOptions
+                {
+                    CloseButton = false,
+                    CloseOnEscapeKey = false,
+                    BackdropClick = false,
+                    MaxWidth = MaxWidth.Small,
+                    FullWidth = true,
+                };
+                var linkDialog = await DialogService.ShowAsync<LinkImpresaDialog>(
+                    $"Verbale {firma.NumeroAssegnato}/{firma.Anno} firmato",
+                    linkParams, linkOptions);
+                await linkDialog.Result;
                 Nav.NavigateTo("/");
             }
         }

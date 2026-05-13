@@ -1,0 +1,66 @@
+@*
+    Dialog mostrato post-firma CSE (B.11) con il magic-link da condividere con
+    l'Impresa Appaltatrice. Bottone "Copia link" usa navigator.clipboard via JS
+    interop con fallback su selezione manuale del MudTextField ReadOnly.
+*@
+
+@inject IJSRuntime JS
+@inject ISnackbar Snackbar
+
+<MudDialog>
+    <DialogContent>
+        <MudStack Spacing="3">
+            <MudAlert Severity="Severity.Success" Icon="@Icons.Material.Filled.Verified" Variant="Variant.Outlined">
+                Verbale <strong>@Numero/@Anno</strong> firmato dal CSE.
+            </MudAlert>
+
+            <MudText Typo="Typo.body2">
+                Condividi questo link con l'Impresa Appaltatrice per la sua firma.
+                Il link scade in 48 ore e puo' essere usato una sola volta.
+            </MudText>
+
+            <MudTextField T="string"
+                          Value="@LinkUrl"
+                          Label="Link per la firma dell'Impresa"
+                          ReadOnly="true"
+                          Variant="Variant.Outlined"
+                          Lines="2" />
+        </MudStack>
+    </DialogContent>
+    <DialogActions>
+        <MudButton OnClick="HandleVaiHome" Variant="Variant.Text">Vai alla home</MudButton>
+        <MudButton OnClick="HandleCopia"
+                   Variant="Variant.Filled"
+                   Color="Color.Primary"
+                   StartIcon="@Icons.Material.Filled.ContentCopy">
+            Copia link
+        </MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter] private IMudDialogInstance MudDialog { get; set; } = null!;
+
+    [Parameter, EditorRequired] public string LinkUrl { get; set; } = string.Empty;
+    [Parameter, EditorRequired] public int Numero { get; set; }
+    [Parameter, EditorRequired] public int Anno { get; set; }
+
+    private async Task HandleCopia()
+    {
+        try
+        {
+            await JS.InvokeVoidAsync("navigator.clipboard.writeText", LinkUrl);
+            Snackbar.Add("Link copiato negli appunti.", Severity.Success);
+        }
+        catch
+        {
+            // Browser senza clipboard API (es. http insicuro): l'utente puo' copiare a mano dal text field.
+            Snackbar.Add("Copia non disponibile. Seleziona il link manualmente.", Severity.Warning);
+        }
+    }
+
+    private void HandleVaiHome()
+    {
+        MudDialog.Close(DialogResult.Ok(true));
+    }
+}

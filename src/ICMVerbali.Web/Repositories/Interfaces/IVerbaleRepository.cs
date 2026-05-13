@@ -102,14 +102,17 @@ public interface IVerbaleRepository
     Task<IReadOnlyList<VerbaleListItem>> GetBozzeAsync(CancellationToken ct = default);
 
     // -------- firma (transizione Bozza -> FirmatoCse) -------------------
-    // Operazione composta in UNA transazione:
+    // Operazione composta in UNA transazione (B.11 estende B.10 con il token):
     //   1. Lock + verifica Stato == Bozza (idempotenza: due click sul bottone non firmano due volte)
     //   2. Calcola Numero come MAX(Numero)+1 per l'Anno dato (UNIQUE filtrato gestisce race)
     //   3. INSERT in Firma (PK verbaleId+Tipo)
     //   4. UPDATE Verbale: Stato=FirmatoCse, Numero, Anno, UpdatedAt
     //   5. INSERT in VerbaleAudit (EventoTipo=Firma)
-    // Restituisce il (Numero, Anno) assegnato. Il filesystem (PNG firma) NON e'
-    // toccato qui — il chiamante deve averlo gia' salvato prima di chiamare.
+    //   6. INSERT in FirmaToken (atomico con la firma: nessun verbale FirmatoCse
+    //      esiste senza il suo magic-link per la firma Impresa).
+    // Restituisce il (Numero, Anno, TokenImpresa) assegnato. Il filesystem
+    // (PNG firma) NON e' toccato qui — il chiamante deve averlo gia' salvato
+    // prima di chiamare.
     Task<FirmaCseResult> FirmaCseAsync(
         Guid verbaleId,
         int anno,
@@ -117,8 +120,38 @@ public interface IVerbaleRepository
         DateOnly dataFirma,
         string immagineFirmaPath,
         Guid utenteId,
+        FirmaTokenInputs tokenImpresa,
+        CancellationToken ct = default);
+
+    // -------- firma (transizione FirmatoCse -> FirmatoImpresa) ---------
+    // Operazione composta in UNA transazione (B.11):
+    //   1. Lock + verifica Stato == FirmatoCse (idempotenza)
+    //   2. INSERT in Firma con Tipo=ImpresaAppaltatrice
+    //   3. UPDATE Verbale: Stato=FirmatoImpresa, UpdatedAt (Numero/Anno NON cambiano)
+    //   4. INSERT in VerbaleAudit (EventoTipo=Firma)
+    //   5. UPDATE FirmaToken SET UsatoUtc = SYSUTCDATETIME() WHERE Id = @TokenId
+    //      AND UsatoUtc IS NULL (uso singolo: rejecta race tra due tab aperte)
+    // Niente assegnazione Numero/Anno: sono gia' stati assegnati alla firma CSE.
+    // UtenteId per l'audit e' tipicamente CompilatoDaUtenteId del verbale (l'impresa
+    // non ha un account: vedi docs/01-design.md Addendum 2026-05-14 §7).
+    Task FirmaImpresaAsync(
+        Guid verbaleId,
+        Guid tokenId,
+        string nomeFirmatario,
+        DateOnly dataFirma,
+        string immagineFirmaPath,
+        Guid utenteId,
         CancellationToken ct = default);
 }
 
-// Risultato della firma CSE. NumeroAssegnato e' il numero progressivo finale.
-public sealed record FirmaCseResult(int NumeroAssegnato, int Anno);
+// Risultato della firma CSE. TokenImpresa e' il GUID da mettere nell'URL del
+// magic-link condiviso con l'Impresa (es. /firma-impresa/{TokenImpresa}).
+public sealed record FirmaCseResult(int NumeroAssegnato, int Anno, Guid TokenImpresa);
+
+// Materiale del token impresa che il chiamante (manager) pre-calcola e passa al
+// repository per l'INSERT atomico con la firma CSE.
+public sealed record FirmaTokenInputs(
+    Guid TokenId,
+    Guid Token,
+    DateTime ScadenzaUtc,
+    DateTime CreatedAt);

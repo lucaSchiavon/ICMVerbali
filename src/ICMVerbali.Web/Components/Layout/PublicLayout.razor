@@ -1,0 +1,28 @@
+@inherits LayoutComponentBase
+@using ICMVerbali.Web.Theme
+
+@* Layout per pagine pubbliche accessibili senza autenticazione, in particolare
+   /firma-impresa/{token} (B.11). Niente NavMenu, niente account: solo branding
+   minimale e contenuto in un container max-width responsive. *@
+
+<MudThemeProvider Theme="@AppTheme.Default" />
+<MudPopoverProvider />
+<MudDialogProvider />
+<MudSnackbarProvider />
+
+<MudAppBar Elevation="1" Color="Color.Primary" Dense="true">
+    <MudIcon Icon="@Icons.Material.Filled.Verified" Class="mr-2" />
+    <MudText Typo="Typo.h6">ICM Verbali — Firma Impresa</MudText>
+</MudAppBar>
+
+<MudMainContent>
+    <MudContainer MaxWidth="MaxWidth.Medium" Class="py-4">
+        @Body
+    </MudContainer>
+</MudMainContent>
+
+<div id="blazor-error-ui" data-nosnippet>
+    Si e' verificato un errore.
+    <a href="." class="reload">Ricarica</a>
+    <span class="dismiss">🗙</span>
+</div>

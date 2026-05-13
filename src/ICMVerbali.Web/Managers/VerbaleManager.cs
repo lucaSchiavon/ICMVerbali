@@ -15,6 +15,7 @@ public sealed class VerbaleManager : IVerbaleManager
     private readonly ICatalogoTipoApprestamentoRepository _catApprestamenti;
     private readonly ICatalogoTipoCondizioneAmbientaleRepository _catCondizioniAmb;
     private readonly IFirmaStorageService _firmaStorage;
+    private readonly IFirmaTokenManager _firmaTokenManager;
     private readonly TimeProvider _clock;
 
     public VerbaleManager(
@@ -24,6 +25,7 @@ public sealed class VerbaleManager : IVerbaleManager
         ICatalogoTipoApprestamentoRepository catApprestamenti,
         ICatalogoTipoCondizioneAmbientaleRepository catCondizioniAmb,
         IFirmaStorageService firmaStorage,
+        IFirmaTokenManager firmaTokenManager,
         TimeProvider clock)
     {
         _repo = repo;
@@ -32,6 +34,7 @@ public sealed class VerbaleManager : IVerbaleManager
         _catApprestamenti = catApprestamenti;
         _catCondizioniAmb = catCondizioniAmb;
         _firmaStorage = firmaStorage;
+        _firmaTokenManager = firmaTokenManager;
         _clock = clock;
     }
 
@@ -291,9 +294,60 @@ public sealed class VerbaleManager : IVerbaleManager
         var anno = now.Year;
         var dataFirma = DateOnly.FromDateTime(now);
 
-        // 5. Transazione DB: Numero/Anno + Firma + UPDATE stato + audit.
+        // 5. Pre-calcola il token impresa: TokenId, Token (GUID v7), ScadenzaUtc
+        // (now + ScadenzaOreDefault da appsettings). L'INSERT effettivo avviene
+        // dentro la transazione del repo per garantire atomicita' con la firma.
+        var tokenSeed = _firmaTokenManager.CalcolaProssimoToken();
+        var tokenInputs = new FirmaTokenInputs(
+            tokenSeed.TokenId,
+            tokenSeed.Token,
+            tokenSeed.ScadenzaUtc,
+            tokenSeed.CreatedAt);
+
+        // 6. Transazione DB: Numero/Anno + Firma + UPDATE stato + audit + token impresa.
         return await _repo.FirmaCseAsync(
             verbaleId, anno, nomeFirmatario.Trim(), dataFirma,
-            storageResult.FilePathRelativo, utenteId, ct);
+            storageResult.FilePathRelativo, utenteId, tokenInputs, ct);
+    }
+
+    // -------- firma Impresa (FirmatoCse -> FirmatoImpresa) --------------
+    public async Task FirmaImpresaAsync(
+        Guid token,
+        string nomeFirmatario,
+        byte[] pngBytes,
+        CancellationToken ct = default)
+    {
+        ArgumentNullException.ThrowIfNull(pngBytes);
+        if (pngBytes.Length == 0)
+            throw new ArgumentException("Immagine firma vuota.", nameof(pngBytes));
+        if (string.IsNullOrWhiteSpace(nomeFirmatario))
+            throw new ArgumentException("Nome firmatario obbligatorio.", nameof(nomeFirmatario));
+
+        // 1. Valida token (FirmaTokenInvalidoException con motivo specifico se KO).
+        var tokenEntity = await _firmaTokenManager.ValidaTokenAsync(token, ct);
+
+        // 2. Carica verbale e verifica stato. Il check ridondante con il lock del
+        // repo serve per fail-fast e per messaggio piu' pulito alla UI.
+        var verbale = await _repo.GetByIdAsync(tokenEntity.VerbaleId, ct)
+            ?? throw new InvalidOperationException(
+                $"Verbale {tokenEntity.VerbaleId} (associato al token) non trovato.");
+        if (verbale.Stato != StatoVerbale.FirmatoCse)
+            throw new InvalidOperationException(
+                $"Verbale {verbale.Id} non e' in FirmatoCse (stato attuale: {verbale.Stato}).");
+
+        // 3. Salva PNG su storage prima della transazione. Path:
+        // firme/{verbaleId}/impresa.png. In caso di rollback DB, il PNG resta
+        // orfano sul filesystem (accettato, pattern B.9/B.10).
+        var storageResult = await _firmaStorage.SalvaAsync(
+            verbale.Id, TipoFirmatario.ImpresaAppaltatrice, pngBytes, ct);
+
+        var now = _clock.GetUtcNow().UtcDateTime;
+        var dataFirma = DateOnly.FromDateTime(now);
+
+        // 4. Transazione DB: insert Firma + UPDATE stato + audit + mark token usato.
+        // UtenteId per l'audit = CompilatoDaUtenteId del verbale (vedi design doc).
+        await _repo.FirmaImpresaAsync(
+            verbale.Id, tokenEntity.Id, nomeFirmatario.Trim(), dataFirma,
+            storageResult.FilePathRelativo, verbale.CompilatoDaUtenteId, ct);
     }
 }

@@ -37,8 +37,9 @@
                                 @foreach (var v in _verbaliOggi)
                                 {
                                     var id = v.Id;
+                                    var stato = v.Stato;
                                     <MudListItem T="VerbaleListItem" Icon="@Icons.Material.Filled.Description"
-                                                 OnClick="@(() => OpenWizard(id))">
+                                                 OnClick="@(() => OpenVerbale(id, stato))">
                                         <MudText Typo="Typo.body1">
                                             <strong>@FormatNumero(v)</strong> — @v.CantiereUbicazione
                                         </MudText>
@@ -80,6 +81,7 @@
                                     </MudListItem>
                                 }
                             </MudList>
+                            @* Le bozze aprono sempre il wizard, non la detail view. *@
                         }
                     </MudPaper>
                 </MudItem>
@@ -112,6 +114,16 @@
 
     private void OpenWizard(Guid verbaleId)
         => Nav.NavigateTo($"/verbali/{verbaleId}/step/1");
+
+    // I verbali in Bozza si aprono nel wizard (per continuarne la compilazione);
+    // quelli con Stato >= FirmatoCse si aprono nella detail view read-only (B.11).
+    private void OpenVerbale(Guid verbaleId, StatoVerbale stato)
+    {
+        if (stato == StatoVerbale.Bozza)
+            Nav.NavigateTo($"/verbali/{verbaleId}/step/1");
+        else
+            Nav.NavigateTo($"/verbali/{verbaleId}");
+    }
 
     private static string FormatNumero(VerbaleListItem v)
         => v.Numero.HasValue && v.Anno.HasValue

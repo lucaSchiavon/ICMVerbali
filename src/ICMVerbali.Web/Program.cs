@@ -45,6 +45,8 @@ builder.Services.Configure<CircuitOptions>(options =>
 // Data access (Dapper) e storage immagini. Vedi docs/01-design.md §3, §7.
 builder.Services.Configure<StorageOptions>(
     builder.Configuration.GetSection(StorageOptions.SectionName));
+builder.Services.Configure<FirmaTokenOptions>(
+    builder.Configuration.GetSection(FirmaTokenOptions.SectionName));
 builder.Services.AddSingleton<ISqlConnectionFactory, SqlConnectionFactory>();
 builder.Services.AddSingleton<IFotoStorageService, LocalFotoStorageService>();
 builder.Services.AddSingleton<IFirmaStorageService, LocalFirmaStorageService>();
@@ -63,6 +65,7 @@ builder.Services.AddScoped<ICatalogoTipoCondizioneAmbientaleRepository, Catalogo
 builder.Services.AddScoped<IVerbaleRepository, VerbaleRepository>();
 builder.Services.AddScoped<IFotoRepository, FotoRepository>();
 builder.Services.AddScoped<IFirmaRepository, FirmaRepository>();
+builder.Services.AddScoped<IFirmaTokenRepository, FirmaTokenRepository>();
 
 // Manager. Lifetime Scoped (1:1 con Repository).
 builder.Services.AddScoped<ICantiereManager, CantiereManager>();
@@ -76,6 +79,7 @@ builder.Services.AddScoped<ICatalogoTipoApprestamentoManager, CatalogoTipoAppres
 builder.Services.AddScoped<ICatalogoTipoCondizioneAmbientaleManager, CatalogoTipoCondizioneAmbientaleManager>();
 builder.Services.AddScoped<IVerbaleManager, VerbaleManager>();
 builder.Services.AddScoped<IFotoManager, FotoManager>();
+builder.Services.AddScoped<IFirmaTokenManager, FirmaTokenManager>();
 
 // Authentication (cookie) + authorization. Vedi docs/01-design.md §4.
 builder.Services
