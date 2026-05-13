@@ -19,8 +19,16 @@ DapperConfiguration.Initialize();
 var builder = WebApplication.CreateBuilder(args);
 
 // Add services to the container.
+// HubOptions.MaximumReceiveMessageSize a 1 MB: il default di SignalR (32 KB)
+// non basta per JSInterop call con payload grandi (es. PNG base64 di una firma
+// generata su display HiDPI mobile, che facilmente supera 32 KB) e fa rimanere
+// appese le chiamate senza errori visibili lato client.
 builder.Services.AddRazorComponents()
-    .AddInteractiveServerComponents();
+    .AddInteractiveServerComponents()
+    .AddHubOptions(options =>
+    {
+        options.MaximumReceiveMessageSize = 1024 * 1024;
+    });
 
 builder.Services.AddMudServices();
 
