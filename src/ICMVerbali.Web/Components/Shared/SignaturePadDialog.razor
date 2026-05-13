@@ -87,7 +87,7 @@
     [Parameter, EditorRequired] public Guid VerbaleId { get; set; }
     [Parameter] public string NomeFirmatarioSuggerito { get; set; } = string.Empty;
 
-    private readonly string _canvasId = $"sig-{Guid.NewGuid():N}";
+    private readonly string _canvasId = $"sig-{Guid.CreateVersion7():N}";
     private IJSObjectReference? _module;
     private string _nomeFirmatario = string.Empty;
     private bool _signing;

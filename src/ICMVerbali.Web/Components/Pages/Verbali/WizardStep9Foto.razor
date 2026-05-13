@@ -207,7 +207,7 @@
         // Aggiungi placeholder cards subito (optimistic UI).
         var newUploads = files.Select(f => new UploadItem
         {
-            ClientId = Guid.NewGuid(),
+            ClientId = Guid.CreateVersion7(),
             BrowserFile = f,
             FileName = f.Name,
             Status = UploadStatus.InProgress,

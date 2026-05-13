@@ -19,7 +19,7 @@ public sealed class PersonaManager : IPersonaManager
 
         var persona = new Persona
         {
-            Id = Guid.NewGuid(),
+            Id = Guid.CreateVersion7(),
             Nominativo = nominativo,
             Azienda = azienda,
             IsAttivo = true,

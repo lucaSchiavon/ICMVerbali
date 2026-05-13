@@ -19,7 +19,7 @@ public sealed class CantiereManager : ICantiereManager
 
         var cantiere = new Cantiere
         {
-            Id = Guid.NewGuid(),
+            Id = Guid.CreateVersion7(),
             Ubicazione = ubicazione,
             Tipologia = tipologia,
             ImportoAppalto = importoAppalto,

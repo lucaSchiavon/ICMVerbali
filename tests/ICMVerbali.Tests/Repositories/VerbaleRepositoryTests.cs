@@ -17,7 +17,7 @@ public class VerbaleRepositoryTests
 
         // Una sola riga per tabella checklist: il test verifica la transazione,
         // non la cardinalita' del catalogo (gia' coperta dai test catalogo).
-        var verbaleId = Guid.NewGuid();
+        var verbaleId = Guid.CreateVersion7();
         var verbale = BuildBozza(verbaleId, anagrafiche);
 
         var attivita = new[]
@@ -61,7 +61,7 @@ public class VerbaleRepositoryTests
         };
         var audit = new VerbaleAudit
         {
-            Id = Guid.NewGuid(),
+            Id = Guid.CreateVersion7(),
             VerbaleId = verbaleId,
             UtenteId = anagrafiche.UtenteId,
             DataEvento = DateTime.UtcNow,
@@ -99,11 +99,11 @@ public class VerbaleRepositoryTests
         var verbaleRepo = new VerbaleRepository(_factory);
         var anagrafiche = await SeedAnagraficheAsync();
 
-        var verbaleId = Guid.NewGuid();
+        var verbaleId = Guid.CreateVersion7();
         var verbale = BuildBozza(verbaleId, anagrafiche);
         var audit = new VerbaleAudit
         {
-            Id = Guid.NewGuid(),
+            Id = Guid.CreateVersion7(),
             VerbaleId = verbaleId,
             UtenteId = anagrafiche.UtenteId,
             DataEvento = DateTime.UtcNow,
@@ -145,11 +145,11 @@ public class VerbaleRepositoryTests
         var verbaleRepo = new VerbaleRepository(_factory);
         var anagrafiche = await SeedAnagraficheAsync();
 
-        var verbaleId = Guid.NewGuid();
+        var verbaleId = Guid.CreateVersion7();
         var verbale = BuildBozza(verbaleId, anagrafiche);
         var audit = new VerbaleAudit
         {
-            Id = Guid.NewGuid(),
+            Id = Guid.CreateVersion7(),
             VerbaleId = verbaleId,
             UtenteId = anagrafiche.UtenteId,
             DataEvento = DateTime.UtcNow,
@@ -180,11 +180,11 @@ public class VerbaleRepositoryTests
     {
         var verbaleRepo = new VerbaleRepository(_factory);
         var anagrafiche = await SeedAnagraficheAsync();
-        var verbaleId = Guid.NewGuid();
+        var verbaleId = Guid.CreateVersion7();
         var verbale = BuildBozza(verbaleId, anagrafiche);
         var audit = new VerbaleAudit
         {
-            Id = Guid.NewGuid(),
+            Id = Guid.CreateVersion7(),
             VerbaleId = verbaleId,
             UtenteId = anagrafiche.UtenteId,
             DataEvento = DateTime.UtcNow,
@@ -192,11 +192,11 @@ public class VerbaleRepositoryTests
         };
 
         // Crea un secondo cantiere a cui spostare il verbale (cleanup nel finally).
-        var altroCantiereId = Guid.NewGuid();
+        var altroCantiereId = Guid.CreateVersion7();
         var altroCantiere = new Cantiere
         {
             Id = altroCantiereId,
-            Ubicazione = $"Test loc ALT {Guid.NewGuid():N}",
+            Ubicazione = $"Test loc ALT {Guid.CreateVersion7():N}",
             Tipologia = "Test",
             IsAttivo = true,
         };
@@ -237,11 +237,11 @@ public class VerbaleRepositoryTests
     {
         var verbaleRepo = new VerbaleRepository(_factory);
         var anagrafiche = await SeedAnagraficheAsync();
-        var verbaleId = Guid.NewGuid();
+        var verbaleId = Guid.CreateVersion7();
         var verbale = BuildBozza(verbaleId, anagrafiche);
         var audit = new VerbaleAudit
         {
-            Id = Guid.NewGuid(),
+            Id = Guid.CreateVersion7(),
             VerbaleId = verbaleId,
             UtenteId = anagrafiche.UtenteId,
             DataEvento = DateTime.UtcNow,
@@ -281,11 +281,11 @@ public class VerbaleRepositoryTests
     {
         var verbaleRepo = new VerbaleRepository(_factory);
         var anagrafiche = await SeedAnagraficheAsync();
-        var verbaleId = Guid.NewGuid();
+        var verbaleId = Guid.CreateVersion7();
         var verbale = BuildBozza(verbaleId, anagrafiche);
         var audit = new VerbaleAudit
         {
-            Id = Guid.NewGuid(),
+            Id = Guid.CreateVersion7(),
             VerbaleId = verbaleId,
             UtenteId = anagrafiche.UtenteId,
             DataEvento = DateTime.UtcNow,
@@ -325,7 +325,7 @@ public class VerbaleRepositoryTests
         // toggla Selezionato + AltroDescrizione, e verifica via GET joinato.
         var verbaleRepo = new VerbaleRepository(_factory);
         var anagrafiche = await SeedAnagraficheAsync();
-        var verbaleId = Guid.NewGuid();
+        var verbaleId = Guid.CreateVersion7();
         var verbale = BuildBozza(verbaleId, anagrafiche);
         var catalogoId = await GetFirstCatalogoIdAsync("CatalogoTipoAttivita");
         var attivita = new[]
@@ -340,7 +340,7 @@ public class VerbaleRepositoryTests
         };
         var audit = new VerbaleAudit
         {
-            Id = Guid.NewGuid(),
+            Id = Guid.CreateVersion7(),
             VerbaleId = verbaleId,
             UtenteId = anagrafiche.UtenteId,
             DataEvento = DateTime.UtcNow,
@@ -389,11 +389,11 @@ public class VerbaleRepositoryTests
         // lista (nessuna riga residua della prima). UpdatedAt viene bumpato.
         var verbaleRepo = new VerbaleRepository(_factory);
         var anagrafiche = await SeedAnagraficheAsync();
-        var verbaleId = Guid.NewGuid();
+        var verbaleId = Guid.CreateVersion7();
         var verbale = BuildBozza(verbaleId, anagrafiche);
         var audit = new VerbaleAudit
         {
-            Id = Guid.NewGuid(),
+            Id = Guid.CreateVersion7(),
             VerbaleId = verbaleId,
             UtenteId = anagrafiche.UtenteId,
             DataEvento = DateTime.UtcNow,
@@ -414,9 +414,9 @@ public class VerbaleRepositoryTests
 
             var primaTornata = new[]
             {
-                new PrescrizioneCse { Id = Guid.NewGuid(), VerbaleId = verbaleId, Testo = "Prima",  Ordine = 1 },
-                new PrescrizioneCse { Id = Guid.NewGuid(), VerbaleId = verbaleId, Testo = "Seconda", Ordine = 2 },
-                new PrescrizioneCse { Id = Guid.NewGuid(), VerbaleId = verbaleId, Testo = "Terza",   Ordine = 3 },
+                new PrescrizioneCse { Id = Guid.CreateVersion7(), VerbaleId = verbaleId, Testo = "Prima",  Ordine = 1 },
+                new PrescrizioneCse { Id = Guid.CreateVersion7(), VerbaleId = verbaleId, Testo = "Seconda", Ordine = 2 },
+                new PrescrizioneCse { Id = Guid.CreateVersion7(), VerbaleId = verbaleId, Testo = "Terza",   Ordine = 3 },
             };
             await verbaleRepo.ReplacePrescrizioniAsync(verbaleId, primaTornata);
 
@@ -427,8 +427,8 @@ public class VerbaleRepositoryTests
 
             var secondaTornata = new[]
             {
-                new PrescrizioneCse { Id = Guid.NewGuid(), VerbaleId = verbaleId, Testo = "Sostituita-A", Ordine = 1 },
-                new PrescrizioneCse { Id = Guid.NewGuid(), VerbaleId = verbaleId, Testo = "Sostituita-B", Ordine = 2 },
+                new PrescrizioneCse { Id = Guid.CreateVersion7(), VerbaleId = verbaleId, Testo = "Sostituita-A", Ordine = 1 },
+                new PrescrizioneCse { Id = Guid.CreateVersion7(), VerbaleId = verbaleId, Testo = "Sostituita-B", Ordine = 2 },
             };
             await verbaleRepo.ReplacePrescrizioniAsync(verbaleId, secondaTornata);
 
@@ -455,11 +455,11 @@ public class VerbaleRepositoryTests
         var verbaleRepo = new VerbaleRepository(_factory);
         var firmaRepo = new FirmaRepository(_factory);
         var anagrafiche = await SeedAnagraficheAsync();
-        var verbaleId = Guid.NewGuid();
+        var verbaleId = Guid.CreateVersion7();
         var verbale = BuildBozza(verbaleId, anagrafiche);
         var audit = new VerbaleAudit
         {
-            Id = Guid.NewGuid(),
+            Id = Guid.CreateVersion7(),
             VerbaleId = verbaleId,
             UtenteId = anagrafiche.UtenteId,
             DataEvento = DateTime.UtcNow,
@@ -526,8 +526,8 @@ public class VerbaleRepositoryTests
         var verbaleRepo = new VerbaleRepository(_factory);
         var anagrafiche = await SeedAnagraficheAsync();
         var anno = DateTime.UtcNow.Year;
-        var v1 = Guid.NewGuid();
-        var v2 = Guid.NewGuid();
+        var v1 = Guid.CreateVersion7();
+        var v2 = Guid.CreateVersion7();
 
         try
         {
@@ -536,7 +536,7 @@ public class VerbaleRepositoryTests
                 var bozza = BuildBozza(id, anagrafiche);
                 var audit = new VerbaleAudit
                 {
-                    Id = Guid.NewGuid(),
+                    Id = Guid.CreateVersion7(),
                     VerbaleId = id,
                     UtenteId = anagrafiche.UtenteId,
                     DataEvento = DateTime.UtcNow,
@@ -574,11 +574,11 @@ public class VerbaleRepositoryTests
     {
         var verbaleRepo = new VerbaleRepository(_factory);
         var anagrafiche = await SeedAnagraficheAsync();
-        var verbaleId = Guid.NewGuid();
+        var verbaleId = Guid.CreateVersion7();
         var verbale = BuildBozza(verbaleId, anagrafiche);
         var audit = new VerbaleAudit
         {
-            Id = Guid.NewGuid(),
+            Id = Guid.CreateVersion7(),
             VerbaleId = verbaleId,
             UtenteId = anagrafiche.UtenteId,
             DataEvento = DateTime.UtcNow,
@@ -624,14 +624,14 @@ public class VerbaleRepositoryTests
 
     private async Task<AnagraficheSeed> SeedAnagraficheAsync()
     {
-        var suffix = Guid.NewGuid().ToString("N");
-        var cantiere = new Cantiere { Id = Guid.NewGuid(), Ubicazione = $"Test loc {suffix}", Tipologia = "Test", IsAttivo = true };
-        var committente = new Committente { Id = Guid.NewGuid(), RagioneSociale = $"Test Cmt {suffix}", IsAttivo = true };
-        var impresa = new ImpresaAppaltatrice { Id = Guid.NewGuid(), RagioneSociale = $"Test Imp {suffix}", IsAttivo = true };
-        var persona = new Persona { Id = Guid.NewGuid(), Nominativo = $"Test Persona {suffix}", Azienda = "ICM", IsAttivo = true };
+        var suffix = Guid.CreateVersion7().ToString("N");
+        var cantiere = new Cantiere { Id = Guid.CreateVersion7(), Ubicazione = $"Test loc {suffix}", Tipologia = "Test", IsAttivo = true };
+        var committente = new Committente { Id = Guid.CreateVersion7(), RagioneSociale = $"Test Cmt {suffix}", IsAttivo = true };
+        var impresa = new ImpresaAppaltatrice { Id = Guid.CreateVersion7(), RagioneSociale = $"Test Imp {suffix}", IsAttivo = true };
+        var persona = new Persona { Id = Guid.CreateVersion7(), Nominativo = $"Test Persona {suffix}", Azienda = "ICM", IsAttivo = true };
         var utente = new Utente
         {
-            Id = Guid.NewGuid(),
+            Id = Guid.CreateVersion7(),
             Username = $"user-{suffix}",
             PasswordHash = "fake",
             Ruolo = RuoloUtente.Cse,

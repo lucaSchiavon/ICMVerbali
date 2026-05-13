@@ -54,7 +54,7 @@ public sealed class VerbaleManager : IVerbaleManager
         var condizioniTask = _catCondizioniAmb.GetAllAttiviAsync(ct);
         await Task.WhenAll(attivitaTask, documentiTask, apprestamentiTask, condizioniTask);
 
-        var verbaleId = Guid.NewGuid();
+        var verbaleId = Guid.CreateVersion7();
 
         // Numero/Anno restano null fino alla transizione FirmatoCse (vedi §9.10).
         // Esito/Meteo/Interferenze restano null nella bozza, validati alla firma.
@@ -123,7 +123,7 @@ public sealed class VerbaleManager : IVerbaleManager
 
         var audit = new VerbaleAudit
         {
-            Id = Guid.NewGuid(),
+            Id = Guid.CreateVersion7(),
             VerbaleId = verbaleId,
             UtenteId = compilatoDaUtenteId,
             DataEvento = DateTime.UtcNow,
@@ -237,7 +237,7 @@ public sealed class VerbaleManager : IVerbaleManager
             var id = r.Id;
             if (id == Guid.Empty || !seen.Add(id))
             {
-                id = Guid.NewGuid();
+                id = Guid.CreateVersion7();
                 seen.Add(id);
             }
             normalized.Add(new PrescrizioneCse

@@ -124,7 +124,7 @@
     {
         _items.Add(new PrescrizioneCse
         {
-            Id = Guid.NewGuid(),
+            Id = Guid.CreateVersion7(),
             VerbaleId = VerbaleId,
             Testo = string.Empty,
             Ordine = _items.Count + 1,

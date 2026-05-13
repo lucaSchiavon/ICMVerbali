@@ -428,7 +428,7 @@ WHERE Id = @Id;";
             // 3. INSERT in Firma (UQ_Firma_VerbaleId_Tipo blocca doppie firme CSE).
             await conn.ExecuteAsync(new CommandDefinition(SqlInsertFirma, new
             {
-                Id = Guid.NewGuid(),
+                Id = Guid.CreateVersion7(),
                 VerbaleId = verbaleId,
                 Tipo = TipoFirmatario.Cse,
                 NomeFirmatario = nomeFirmatario,
@@ -448,7 +448,7 @@ WHERE Id = @Id;";
             // 5. Audit.
             await conn.ExecuteAsync(new CommandDefinition(SqlInsertAudit, new
             {
-                Id = Guid.NewGuid(),
+                Id = Guid.CreateVersion7(),
                 VerbaleId = verbaleId,
                 UtenteId = utenteId,
                 DataEvento = DateTime.UtcNow,

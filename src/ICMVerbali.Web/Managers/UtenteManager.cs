@@ -21,7 +21,7 @@ public sealed class UtenteManager : IUtenteManager
         var now = DateTime.UtcNow;
         var utente = new Utente
         {
-            Id = Guid.NewGuid(),
+            Id = Guid.CreateVersion7(),
             Username = username,
             Email = email,
             PasswordHash = passwordHash,

@@ -14,8 +14,8 @@ public class PersonaRepositoryTests
         var repo = new PersonaRepository(_factory);
         var persona = new Persona
         {
-            Id = Guid.NewGuid(),
-            Nominativo = $"Ing. Test {Guid.NewGuid():N}",
+            Id = Guid.CreateVersion7(),
+            Nominativo = $"Ing. Test {Guid.CreateVersion7():N}",
             Azienda = "ICM Solutions",
             IsAttivo = true,
         };

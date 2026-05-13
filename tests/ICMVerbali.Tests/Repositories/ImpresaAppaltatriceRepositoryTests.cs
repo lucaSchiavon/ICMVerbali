@@ -14,8 +14,8 @@ public class ImpresaAppaltatriceRepositoryTests
         var repo = new ImpresaAppaltatriceRepository(_factory);
         var impresa = new ImpresaAppaltatrice
         {
-            Id = Guid.NewGuid(),
-            RagioneSociale = $"Test Srl {Guid.NewGuid():N}",
+            Id = Guid.CreateVersion7(),
+            RagioneSociale = $"Test Srl {Guid.CreateVersion7():N}",
             Indirizzo = "Via Test 2, Milano",
             CodiceFiscale = "98765432109",
             PartitaIva = "98765432109",

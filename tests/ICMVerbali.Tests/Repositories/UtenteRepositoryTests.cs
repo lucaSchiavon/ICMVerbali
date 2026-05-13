@@ -16,9 +16,9 @@ public class UtenteRepositoryTests
         var now = DateTime.UtcNow;
         var utente = new Utente
         {
-            Id = Guid.NewGuid(),
-            Username = $"test-user-{Guid.NewGuid():N}",
-            Email = $"test-{Guid.NewGuid():N}@example.com",
+            Id = Guid.CreateVersion7(),
+            Username = $"test-user-{Guid.CreateVersion7():N}",
+            Email = $"test-{Guid.CreateVersion7():N}@example.com",
             PasswordHash = "fake-hash-not-real-pbkdf2",
             Ruolo = RuoloUtente.Cse,
             IsAttivo = true,

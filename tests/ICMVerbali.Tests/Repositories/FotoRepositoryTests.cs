@@ -16,16 +16,16 @@ public class FotoRepositoryTests
         var fotoRepo = new FotoRepository(_factory);
         var verbaleRepo = new VerbaleRepository(_factory);
         var anagrafiche = await SeedAnagraficheAsync();
-        var verbaleId = Guid.NewGuid();
+        var verbaleId = Guid.CreateVersion7();
 
         try
         {
             await CreateBozzaAsync(verbaleRepo, verbaleId, anagrafiche);
 
             // Create assigna Ordine come max+1: 3 INSERT consecutivi -> 1,2,3.
-            var f1 = new Foto { Id = Guid.NewGuid(), VerbaleId = verbaleId, FilePathRelativo = "verbali/" + verbaleId + "/a.jpg" };
-            var f2 = new Foto { Id = Guid.NewGuid(), VerbaleId = verbaleId, FilePathRelativo = "verbali/" + verbaleId + "/b.jpg" };
-            var f3 = new Foto { Id = Guid.NewGuid(), VerbaleId = verbaleId, FilePathRelativo = "verbali/" + verbaleId + "/c.jpg" };
+            var f1 = new Foto { Id = Guid.CreateVersion7(), VerbaleId = verbaleId, FilePathRelativo = "verbali/" + verbaleId + "/a.jpg" };
+            var f2 = new Foto { Id = Guid.CreateVersion7(), VerbaleId = verbaleId, FilePathRelativo = "verbali/" + verbaleId + "/b.jpg" };
+            var f3 = new Foto { Id = Guid.CreateVersion7(), VerbaleId = verbaleId, FilePathRelativo = "verbali/" + verbaleId + "/c.jpg" };
             await fotoRepo.CreateAsync(f1);
             await fotoRepo.CreateAsync(f2);
             await fotoRepo.CreateAsync(f3);
@@ -52,12 +52,12 @@ public class FotoRepositoryTests
         var fotoRepo = new FotoRepository(_factory);
         var verbaleRepo = new VerbaleRepository(_factory);
         var anagrafiche = await SeedAnagraficheAsync();
-        var verbaleId = Guid.NewGuid();
+        var verbaleId = Guid.CreateVersion7();
 
         try
         {
             await CreateBozzaAsync(verbaleRepo, verbaleId, anagrafiche);
-            var f1 = new Foto { Id = Guid.NewGuid(), VerbaleId = verbaleId, FilePathRelativo = "verbali/" + verbaleId + "/x.jpg" };
+            var f1 = new Foto { Id = Guid.CreateVersion7(), VerbaleId = verbaleId, FilePathRelativo = "verbali/" + verbaleId + "/x.jpg" };
             await fotoRepo.CreateAsync(f1);
 
             var path = await fotoRepo.DeleteAsync(f1.Id);
@@ -82,12 +82,12 @@ public class FotoRepositoryTests
         var fotoRepo = new FotoRepository(_factory);
         var verbaleRepo = new VerbaleRepository(_factory);
         var anagrafiche = await SeedAnagraficheAsync();
-        var verbaleId = Guid.NewGuid();
+        var verbaleId = Guid.CreateVersion7();
 
         try
         {
             await CreateBozzaAsync(verbaleRepo, verbaleId, anagrafiche);
-            var ids = new[] { Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid() };
+            var ids = new[] { Guid.CreateVersion7(), Guid.CreateVersion7(), Guid.CreateVersion7() };
             foreach (var id in ids)
             {
                 await fotoRepo.CreateAsync(new Foto
@@ -124,14 +124,14 @@ public class FotoRepositoryTests
 
     private async Task<AnagraficheSeed> SeedAnagraficheAsync()
     {
-        var suffix = Guid.NewGuid().ToString("N");
-        var cantiere = new Cantiere { Id = Guid.NewGuid(), Ubicazione = $"Test loc {suffix}", Tipologia = "Test", IsAttivo = true };
-        var committente = new Committente { Id = Guid.NewGuid(), RagioneSociale = $"Test Cmt {suffix}", IsAttivo = true };
-        var impresa = new ImpresaAppaltatrice { Id = Guid.NewGuid(), RagioneSociale = $"Test Imp {suffix}", IsAttivo = true };
-        var persona = new Persona { Id = Guid.NewGuid(), Nominativo = $"Test Persona {suffix}", Azienda = "ICM", IsAttivo = true };
+        var suffix = Guid.CreateVersion7().ToString("N");
+        var cantiere = new Cantiere { Id = Guid.CreateVersion7(), Ubicazione = $"Test loc {suffix}", Tipologia = "Test", IsAttivo = true };
+        var committente = new Committente { Id = Guid.CreateVersion7(), RagioneSociale = $"Test Cmt {suffix}", IsAttivo = true };
+        var impresa = new ImpresaAppaltatrice { Id = Guid.CreateVersion7(), RagioneSociale = $"Test Imp {suffix}", IsAttivo = true };
+        var persona = new Persona { Id = Guid.CreateVersion7(), Nominativo = $"Test Persona {suffix}", Azienda = "ICM", IsAttivo = true };
         var utente = new Utente
         {
-            Id = Guid.NewGuid(),
+            Id = Guid.CreateVersion7(),
             Username = $"user-{suffix}",
             PasswordHash = "fake",
             Ruolo = RuoloUtente.Cse,
@@ -170,7 +170,7 @@ public class FotoRepositoryTests
         };
         var audit = new VerbaleAudit
         {
-            Id = Guid.NewGuid(),
+            Id = Guid.CreateVersion7(),
             VerbaleId = verbaleId,
             UtenteId = a.UtenteId,
             DataEvento = DateTime.UtcNow,

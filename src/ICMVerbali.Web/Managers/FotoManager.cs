@@ -40,7 +40,7 @@ public sealed class FotoManager : IFotoManager
 
         var foto = new Foto
         {
-            Id = Guid.NewGuid(),
+            Id = Guid.CreateVersion7(),
             VerbaleId = verbaleId,
             FilePathRelativo = stored.FilePathRelativo,
             Didascalia = null,

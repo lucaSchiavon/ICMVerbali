@@ -17,12 +17,12 @@ public class VerbaleManagerPrescrizioniTests
     {
         var captureRepo = new CaptureVerbaleRepo();
         var manager = BuildManager(captureRepo);
-        var verbaleId = Guid.NewGuid();
+        var verbaleId = Guid.CreateVersion7();
 
         // Due righe con LO STESSO Id (simula la race AutoSave + Submit con
         // riferimento all'oggetto duplicato). Senza dedup, ReplacePrescrizioniAsync
         // lancerebbe PK violation.
-        var idDuplicato = Guid.NewGuid();
+        var idDuplicato = Guid.CreateVersion7();
         var input = new[]
         {
             new PrescrizioneCse { Id = idDuplicato, VerbaleId = verbaleId, Testo = "Prima" },
@@ -47,14 +47,14 @@ public class VerbaleManagerPrescrizioniTests
     {
         var captureRepo = new CaptureVerbaleRepo();
         var manager = BuildManager(captureRepo);
-        var verbaleId = Guid.NewGuid();
+        var verbaleId = Guid.CreateVersion7();
 
         var input = new[]
         {
-            new PrescrizioneCse { Id = Guid.NewGuid(), Testo = "Valida" },
-            new PrescrizioneCse { Id = Guid.NewGuid(), Testo = "" },
-            new PrescrizioneCse { Id = Guid.NewGuid(), Testo = "   " },
-            new PrescrizioneCse { Id = Guid.NewGuid(), Testo = "Altra valida" },
+            new PrescrizioneCse { Id = Guid.CreateVersion7(), Testo = "Valida" },
+            new PrescrizioneCse { Id = Guid.CreateVersion7(), Testo = "" },
+            new PrescrizioneCse { Id = Guid.CreateVersion7(), Testo = "   " },
+            new PrescrizioneCse { Id = Guid.CreateVersion7(), Testo = "Altra valida" },
         };
 
         await manager.UpdatePrescrizioniAsync(verbaleId, input);
@@ -70,7 +70,7 @@ public class VerbaleManagerPrescrizioniTests
     {
         var captureRepo = new CaptureVerbaleRepo();
         var manager = BuildManager(captureRepo);
-        var verbaleId = Guid.NewGuid();
+        var verbaleId = Guid.CreateVersion7();
 
         var input = new[]
         {

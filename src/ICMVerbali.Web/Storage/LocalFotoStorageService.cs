@@ -73,7 +73,7 @@ public sealed class LocalFotoStorageService : IFotoStorageService
             var verbaleDir = Path.Combine(_basePath, VerbaliSubfolder, verbaleId.ToString("D"));
             Directory.CreateDirectory(verbaleDir);
 
-            var fileBaseName = Guid.NewGuid().ToString("D");
+            var fileBaseName = Guid.CreateVersion7().ToString("D");
             var fullPath = Path.Combine(verbaleDir, $"{fileBaseName}.jpg");
             var thumbPath = Path.Combine(verbaleDir, $"{fileBaseName}.thumb.jpg");
 

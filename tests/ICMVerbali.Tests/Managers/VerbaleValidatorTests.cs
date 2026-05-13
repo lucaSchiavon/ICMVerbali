@@ -67,19 +67,19 @@ public class VerbaleValidatorTests
 
     private static Verbale BuildCompleto() => new()
     {
-        Id = Guid.NewGuid(),
+        Id = Guid.CreateVersion7(),
         Data = DateOnly.FromDateTime(DateTime.UtcNow),
-        CantiereId = Guid.NewGuid(),
-        CommittenteId = Guid.NewGuid(),
-        ImpresaAppaltatriceId = Guid.NewGuid(),
-        RlPersonaId = Guid.NewGuid(),
-        CspPersonaId = Guid.NewGuid(),
-        CsePersonaId = Guid.NewGuid(),
-        DlPersonaId = Guid.NewGuid(),
+        CantiereId = Guid.CreateVersion7(),
+        CommittenteId = Guid.CreateVersion7(),
+        ImpresaAppaltatriceId = Guid.CreateVersion7(),
+        RlPersonaId = Guid.CreateVersion7(),
+        CspPersonaId = Guid.CreateVersion7(),
+        CsePersonaId = Guid.CreateVersion7(),
+        DlPersonaId = Guid.CreateVersion7(),
         Esito = EsitoVerifica.Conforme,
         Meteo = CondizioneMeteo.Sereno,
         TemperaturaCelsius = 22,
         Stato = StatoVerbale.Bozza,
-        CompilatoDaUtenteId = Guid.NewGuid(),
+        CompilatoDaUtenteId = Guid.CreateVersion7(),
     };
 }

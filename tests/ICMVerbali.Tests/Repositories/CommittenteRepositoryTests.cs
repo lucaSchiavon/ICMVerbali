@@ -14,8 +14,8 @@ public class CommittenteRepositoryTests
         var repo = new CommittenteRepository(_factory);
         var committente = new Committente
         {
-            Id = Guid.NewGuid(),
-            RagioneSociale = $"Test SpA {Guid.NewGuid():N}",
+            Id = Guid.CreateVersion7(),
+            RagioneSociale = $"Test SpA {Guid.CreateVersion7():N}",
             Indirizzo = "Via Test 1, Roma",
             CodiceFiscale = "12345678901",
             PartitaIva = "12345678901",

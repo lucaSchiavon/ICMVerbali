@@ -23,7 +23,7 @@ public sealed class CommittenteManager : ICommittenteManager
 
         var committente = new Committente
         {
-            Id = Guid.NewGuid(),
+            Id = Guid.CreateVersion7(),
             RagioneSociale = ragioneSociale,
             Indirizzo = indirizzo,
             CodiceFiscale = codiceFiscale,

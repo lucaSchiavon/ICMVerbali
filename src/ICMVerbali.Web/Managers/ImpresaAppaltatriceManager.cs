@@ -23,7 +23,7 @@ public sealed class ImpresaAppaltatriceManager : IImpresaAppaltatriceManager
 
         var impresa = new ImpresaAppaltatrice
         {
-            Id = Guid.NewGuid(),
+            Id = Guid.CreateVersion7(),
             RagioneSociale = ragioneSociale,
             Indirizzo = indirizzo,
             CodiceFiscale = codiceFiscale,

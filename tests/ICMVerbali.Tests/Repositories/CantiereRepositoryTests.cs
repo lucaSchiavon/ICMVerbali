@@ -14,8 +14,8 @@ public class CantiereRepositoryTests
         var repo = new CantiereRepository(_factory);
         var cantiere = new Cantiere
         {
-            Id = Guid.NewGuid(),
-            Ubicazione = $"Test ubicazione {Guid.NewGuid():N}",
+            Id = Guid.CreateVersion7(),
+            Ubicazione = $"Test ubicazione {Guid.CreateVersion7():N}",
             Tipologia = "Test tipologia",
             ImportoAppalto = 12345.67m,
             IsAttivo = true,
