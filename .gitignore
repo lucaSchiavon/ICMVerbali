@@ -432,3 +432,6 @@ FodyWeavers.xsd
 # generati a runtime sul filesystem locale via IFotoStorageService, non
 # vanno versionati. Path configurato in appsettings (Storage:UploadsBasePath).
 src/ICMVerbali.Web/App_Data/
+
+# Cartelle intermedie di build documentazione (HTML rigenerabile da pandoc)
+**/.tmp/
