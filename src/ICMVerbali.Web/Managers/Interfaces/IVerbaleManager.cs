@@ -97,4 +97,16 @@ public interface IVerbaleManager
 
     // Tutte le bozze attive ordinate per ultima modifica.
     Task<IReadOnlyList<VerbaleListItem>> GetBozzeAsync(CancellationToken ct = default);
+
+    // -------- firma CSE (Bozza -> FirmatoCse) ----------------------------
+    // Orchestrazione: valida hard (anagrafiche + esito + meteo), salva PNG su
+    // storage, chiama repo.FirmaCseAsync (transazione: assegna Numero/Anno +
+    // insert Firma + UPDATE Stato + audit). VerbaleNonFirmabileException se la
+    // validazione fallisce; InvalidOperationException se il verbale non e' in Bozza.
+    Task<Repositories.Interfaces.FirmaCseResult> FirmaCseAsync(
+        Guid verbaleId,
+        string nomeFirmatario,
+        byte[] pngBytes,
+        Guid utenteId,
+        CancellationToken ct = default);
 }

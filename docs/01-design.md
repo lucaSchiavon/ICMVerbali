@@ -907,6 +907,53 @@ Verificato in §8.1 contro la documentazione ufficiale MudBlazor: **InteractiveS
 
 ---
 
+## Addendum 2026-05-13 — B.10 firma CSE + fix race step 8
+
+**Lavori chiusi**: transizione `Bozza → FirmatoCse` con firma elettronica semplice tramite signature pad inline, validazione "hard" minimale, numerazione progressiva annuale transazionale, audit della firma. Risolto inoltre un bug live emerso nel test della firma: PK violation in `PrescrizioneCse` per race tra `OnBlur` autosave e `OnClick` submit dello step 8, che faceva cadere il circuito SignalR (manifestazione apparente: "lo scatta foto non funziona al primo tentativo nel flusso di creazione del nuovo verbale, ma funziona se esci e rientri").
+
+**Niente NuGet aggiunti**: il signature pad è una libreria JS (MIT) servita da `wwwroot/lib/signature_pad/`, accessibile via JS interop ES module (`wwwroot/js/signatureInterop.js`).
+
+**Decisioni di design ratificate**:
+
+1. **Libreria signature pad: `signature_pad` JS via interop** (opzione 1 di 3 proposte). Scelte alternative (wrapper NuGet `BlazorSignaturePad`, canvas custom) scartate per: minimizzare dipendenze C#, pattern JS interop già usato in altre parti del progetto, totale controllo sull'init/dispose del canvas.
+
+2. **Vincolo "hard" per `Bozza → FirmatoCse`**: minimo. Una bozza è firmabile sse tutte le 7 FK anagrafiche sono valorizzate e `Esito`+`Meteo` non sono null. NON sono obbligatori: temperatura, interferenze, almeno una foto, almeno una prescrizione (anche se l'esito è non conforme). Razionale: il vincolo legale è la firma del CSE, le checklist e le foto sono supporti probatori opzionali; mettere obblighi più stringenti rischia di bloccare casi legittimi in cantiere senza beneficio normativo. La logica vive in `VerbaleValidator.PuoFirmare` (static helper in `Managers/`), che ritorna `(bool IsValid, IReadOnlyList<string> Errori)` — la UI mostra la lista degli errori dentro il dialog di firma senza chiuderlo.
+
+3. **Numerazione progressiva annuale globale + transazionale**. `Numero` è calcolato come `MAX(Numero)+1 WHERE Anno = @Anno` dentro la stessa transazione della firma, con `UPDLOCK + HOLDLOCK` sul `SELECT` per serializzare i firmatari concorrenti. Anno = anno UTC corrente al momento della firma (non quello della data del verbale): una bozza creata a dicembre ma firmata a gennaio prende il numero del nuovo anno. L'`UNIQUE filtrato` `(Anno, Numero) WHERE Anno IS NOT NULL AND Numero IS NOT NULL` (già nella migration 001) è la rete di sicurezza finale: due bozze cancellate non bruciano numeri, due firme concorrenti non possono ottenere lo stesso numero.
+
+4. **Storage immagine firma**: `IFirmaStorageService` analogo a `IFotoStorageService` ma molto più leggero. Convenzione path `firme/{verbaleId}/{cse|impresa}.png`. Niente resize/auto-orient: il PNG arriva già renderizzato dal signature pad lato client (canvas → `toDataURL('image/png')`), si scrivono i bytes "as-is" e si calcola `SHA-256` per ritornare un hash al manager (uso futuro per audit di integrità). Sovrascrittura permessa: se la transazione DB fallisce dopo la scrittura del PNG, il file orfano è accettato (DB autoritativo, GC futuro). Stesso pattern di B.9.
+
+5. **Riga audit dedicata**: nuovo valore `EventoAuditTipo.Firma = 3` aggiunto all'enum (appende-only come da convenzione). Non serve migration perché la colonna in DB è `tinyint` senza check constraint. La riga viene inserita nella stessa transazione di `FirmaCseAsync` con `Note = "Firma CSE: {nomeFirmatario}"`.
+
+6. **UX dialog inline invece di nuovo step**: la firma viene presa dentro un `MudDialog` aperto dallo step 10 (riepilogo) — `SignaturePadDialog.razor` in `Components/Shared/`. Razionale: il canvas + JS interop sono "extra context" che ha senso montare/smontare on-demand, e l'utente vede comunque il riepilogo completo dietro il dialog (perceived continuity). Aggiungere uno step 11 dedicato sarebbe stato più "wizard-style" ma costringeva a ricaricare la pagina e a gestire un'altra transizione di stato.
+
+**Backend — repository (`VerbaleRepository.FirmaCseAsync`)**: nuovo metodo che incapsula in **una transazione**: (1) `SELECT Stato WITH (UPDLOCK, HOLDLOCK)` con verifica `Stato == Bozza` (idempotenza: due click producono uno solo `FirmatoCse`), (2) calcolo del Numero con `MAX(...) WITH (UPDLOCK, HOLDLOCK)`, (3) `INSERT` in `Firma` (UQ_Firma_VerbaleId_Tipo blinda doppie firme), (4) `UPDATE Verbale` con `Stato=FirmatoCse, Numero, Anno, UpdatedAt`, (5) `INSERT` in `VerbaleAudit`. Ritorna `FirmaCseResult(NumeroAssegnato, Anno)`.
+
+**Backend — repository di lettura (`FirmaRepository`)**: solo read (`GetByVerbaleAsync`, `GetByVerbaleAndTipoAsync`) — la scrittura è esclusivamente attraverso `VerbaleRepository.FirmaCseAsync`. Usato dall'endpoint API per servire il PNG.
+
+**Backend — manager (`VerbaleManager.FirmaCseAsync`)**: orchestra il flusso: carica verbale, verifica `Stato == Bozza` (oltre al check repo, sia per fail-fast lato app), invoca `VerbaleValidator.PuoFirmare` (eccezione tipizzata `VerbaleNonFirmabileException` con lista errori se invalida), salva PNG via storage (path orfano accettato in caso di rollback DB), chiama repo.FirmaCseAsync. Inietta `TimeProvider` per testabilità.
+
+**Endpoint Minimal API**: `GET /api/firme/{verbaleId:guid}/{tipo}` (`tipo=cse` o `impresa`), `RequireAuthorization()`. Carica path da repository e apre stream via storage. Content-Type `image/png`. Stessa policy di auth degli endpoint foto.
+
+**UI — `SignaturePadDialog.razor` (Components/Shared)**: `MudDialog` con `MudTextField` per nome firmatario (pre-compilato col Nominativo del CSE dell'anagrafica, editabile), canvas `400×200` responsive con `touch-action: none` per disabilitare lo scroll del browser durante la firma, bottoni "Pulisci / Annulla / Conferma firma". Su Conferma: chiama JS `getDataUrl('image/png')`, converte da `data:image/png;base64,...` a `byte[]`, recupera l'utente loggato da `AuthState`, chiama `VerbaleManager.FirmaCseAsync`. Errori `VerbaleNonFirmabileException` mostrati come `MudAlert Severity=Warning` con lista puntuale dentro il dialog (senza chiuderlo). Errori `InvalidOperationException` (verbale già firmato, race) come `MudAlert Severity=Error`. Su success: `Dialog.Close(DialogResult.Ok(FirmaCseResult))` → step 10 mostra Snackbar `"Verbale firmato. Numero N/AAAA."` e naviga a `/`.
+
+**JS — `wwwroot/js/signatureInterop.js`**: ES module caricato dinamicamente con `IJSObjectReference` (un'istanza per dialog). Lazy load di `signature_pad.umd.min.js` via injection di `<script>` (cache della Promise per coalesce di chiamate concorrenti). `WeakMap canvas → SignaturePad` per il dispose corretto al teardown del componente. `resizeCanvas` adatta il canvas al `devicePixelRatio` per evitare la linea di firma "scalettata" su display HiDPI. API: `init / clear / isEmpty / getDataUrl / dispose`.
+
+**Bug fixato in-flight — race step 8 `PrescrizioneCse`**: durante il test della firma è emerso che premere "Salva e prosegui" mentre si è dentro un `MudTextField` triggera contemporaneamente `OnBlur` (che chiama `AutoSaveAsync`) e `OnClick` (che chiama `HandleSubmitAsync`). Entrambi invocano `VerbaleManager.UpdatePrescrizioniAsync` con la stessa lista in memoria. Anche se SQL Server serializza tramite lock, in rari interleaving la lista normalizzata finiva con due `PrescrizioneCse` aventi lo stesso `Id`, causando PK violation sul batch INSERT del `ReplacePrescrizioniAsync`. L'eccezione non gestita nel parent (`VerbaleWizard.HandleStep8SubmitAsync`) faceva **cadere il circuito SignalR**: l'utente vedeva i bottoni dello step 9 renderizzati ma non reattivi, e il click su "Scatta" sembrava "non allegare la foto". Esci e rientra → nuovo circuito → tutto rifunziona. Fix in tre punti:
+
+- **Manager (`VerbaleManager.UpdatePrescrizioniAsync`)**: dedup difensiva — se un Id risulta duplicato nella lista in input, ne viene generato uno nuovo (`Guid.NewGuid()`) per le occorrenze successive. Cosi' il batch INSERT non incontra mai duplicati anche se l'UI fosse bacata.
+- **Step 8 (`WizardStep8Prescrizioni`)**: `SemaphoreSlim(1, 1)` che serializza AutoSave e Submit. `AutoSaveAsync` usa `WaitAsync(0)` (skip se un save è in corso); `HandleSubmitAsync` usa `WaitAsync()` (attende l'eventuale AutoSave pendente prima di invocare `OnSubmit`).
+- **Parent (`VerbaleWizard.HandleStep8SubmitAsync`)**: `try/catch` con `Snackbar.Add(Severity.Error)` invece di lasciar propagare l'eccezione. Se in futuro un altro path produce un errore non gestito, il circuito SignalR rimane vivo e l'utente vede un messaggio comprensibile.
+
+**Test**: 31/31 in pass. Nuovi: 5 di `VerbaleValidatorTests` (validator hard), 3 di `VerbaleRepositoryFirmaTests` (Numero progressivo, due verbali consecutivi, idempotenza su verbale già firmato), 3 di `VerbaleManagerPrescrizioniTests` (dedup Id, scarto righe vuote, Guid auto per Id Empty). Live test su DB locale verificato: 3 verbali firmati `2/2026 → 3/2026 → 4/2026`, riga `Firma` con path PNG corretto, riga `VerbaleAudit` con `EventoTipo=Firma`, file PNG su disco di 17-21 KB.
+
+**Cosa NON è stato fatto in B.10** (di proposito):
+- **Firma Impresa** (RF-09): la transizione `FirmatoCse → FirmatoImpresa` ha UX diversa (link separato condiviso con l'impresa, non parte del wizard CSE). Rimandato a B.11.
+- **Disattivazione bottone "Salva e firma" se validator è KO**: oggi l'utente può cliccare e vedere gli errori dentro il dialog. UX accettabile in B.10; un pre-check inline (alert sopra il bottone) lo si valuterà in fase polish UI.
+- **Visualizzazione firma renderizzata**: l'endpoint `/api/firme/{id}/cse` serve il PNG ma nessuna UI lo mostra ancora (servirà nel detail view del verbale firmato, futura B.11+).
+
+---
+
 ## Addendum 2026-05-05 — Raffinature emerse in B.3 (entità POCO)
 
 Durante la scrittura delle entità sono emerse tre raffinature di naming che integrano (non sostituiscono) le sezioni §2.1 e §3.5. Nessun impatto architetturale, solo nomi.

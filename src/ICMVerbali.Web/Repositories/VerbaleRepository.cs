@@ -1,6 +1,7 @@
 using Dapper;
 using ICMVerbali.Web.Data;
 using ICMVerbali.Web.Entities;
+using ICMVerbali.Web.Entities.Enums;
 using ICMVerbali.Web.Models;
 using ICMVerbali.Web.Repositories.Interfaces;
 
@@ -362,6 +363,107 @@ ORDER BY v.UpdatedAt DESC;";
         var rows = await conn.QueryAsync<VerbaleListItem>(
             new CommandDefinition(SqlGetBozze, cancellationToken: ct));
         return rows.ToList();
+    }
+
+    // -------- firma CSE (Bozza -> FirmatoCse) ----------------------------
+    // UPDLOCK + HOLDLOCK sul SELECT iniziale serializza i firmatari concorrenti
+    // sullo stesso anno (l'UNIQUE filtrato e' la rete di sicurezza finale, ma
+    // il lock evita l'errore 2627 nel path comune).
+    private const string SqlSelectStatoForUpdate = @"
+SELECT Stato
+FROM dbo.Verbale WITH (UPDLOCK, HOLDLOCK)
+WHERE Id = @Id;";
+
+    private const string SqlSelectMaxNumeroAnno = @"
+SELECT ISNULL(MAX(Numero), 0)
+FROM dbo.Verbale WITH (UPDLOCK, HOLDLOCK)
+WHERE Anno = @Anno AND Numero IS NOT NULL;";
+
+    private const string SqlInsertFirma = @"
+INSERT INTO dbo.Firma (Id, VerbaleId, Tipo, NomeFirmatario, DataFirma, ImmagineFirmaPath)
+VALUES (@Id, @VerbaleId, @Tipo, @NomeFirmatario, @DataFirma, @ImmagineFirmaPath);";
+
+    private const string SqlUpdateVerbaleFirmaCse = @"
+UPDATE dbo.Verbale
+SET Stato = @Stato,
+    Numero = @Numero,
+    Anno = @Anno,
+    UpdatedAt = SYSUTCDATETIME()
+WHERE Id = @Id;";
+
+    public async Task<FirmaCseResult> FirmaCseAsync(
+        Guid verbaleId,
+        int anno,
+        string nomeFirmatario,
+        DateOnly dataFirma,
+        string immagineFirmaPath,
+        Guid utenteId,
+        CancellationToken ct = default)
+    {
+        await using var conn = await _factory.CreateOpenConnectionAsync(ct);
+        await using var tx = await conn.BeginTransactionAsync(ct);
+        try
+        {
+            // 1. Lock + verifica Stato == Bozza. Se gia' firmato (race tra due
+            // click), il chiamante riceve InvalidOperationException e abortisce.
+            var statoCorrente = await conn.QuerySingleOrDefaultAsync<byte?>(
+                new CommandDefinition(SqlSelectStatoForUpdate,
+                    new { Id = verbaleId },
+                    transaction: tx, cancellationToken: ct));
+            if (statoCorrente is null)
+                throw new InvalidOperationException($"Verbale {verbaleId} non trovato.");
+            if (statoCorrente != (byte)StatoVerbale.Bozza)
+                throw new InvalidOperationException(
+                    $"Verbale {verbaleId} non e' in Bozza (stato attuale: {(StatoVerbale)statoCorrente.Value}).");
+
+            // 2. Numero progressivo per l'anno corrente. UPDLOCK su MAX impedisce
+            // a un secondo firmatario di calcolare lo stesso numero finche'
+            // questa transazione non committa.
+            var maxNumero = await conn.ExecuteScalarAsync<int>(
+                new CommandDefinition(SqlSelectMaxNumeroAnno,
+                    new { Anno = anno },
+                    transaction: tx, cancellationToken: ct));
+            var numero = maxNumero + 1;
+
+            // 3. INSERT in Firma (UQ_Firma_VerbaleId_Tipo blocca doppie firme CSE).
+            await conn.ExecuteAsync(new CommandDefinition(SqlInsertFirma, new
+            {
+                Id = Guid.NewGuid(),
+                VerbaleId = verbaleId,
+                Tipo = TipoFirmatario.Cse,
+                NomeFirmatario = nomeFirmatario,
+                DataFirma = dataFirma,
+                ImmagineFirmaPath = immagineFirmaPath,
+            }, transaction: tx, cancellationToken: ct));
+
+            // 4. UPDATE Verbale -> FirmatoCse.
+            await conn.ExecuteAsync(new CommandDefinition(SqlUpdateVerbaleFirmaCse, new
+            {
+                Id = verbaleId,
+                Stato = StatoVerbale.FirmatoCse,
+                Numero = numero,
+                Anno = anno,
+            }, transaction: tx, cancellationToken: ct));
+
+            // 5. Audit.
+            await conn.ExecuteAsync(new CommandDefinition(SqlInsertAudit, new
+            {
+                Id = Guid.NewGuid(),
+                VerbaleId = verbaleId,
+                UtenteId = utenteId,
+                DataEvento = DateTime.UtcNow,
+                EventoTipo = EventoAuditTipo.Firma,
+                Note = (string?)$"Firma CSE: {nomeFirmatario}",
+            }, transaction: tx, cancellationToken: ct));
+
+            await tx.CommitAsync(ct);
+            return new FirmaCseResult(numero, anno);
+        }
+        catch
+        {
+            await tx.RollbackAsync(ct);
+            throw;
+        }
     }
 
     // -------- checklist GET (step 3-6) -----------------------------------

@@ -100,4 +100,25 @@ public interface IVerbaleRepository
 
     // Bozze attive (Stato = 0, non eliminate), ordinate per UpdatedAt DESC.
     Task<IReadOnlyList<VerbaleListItem>> GetBozzeAsync(CancellationToken ct = default);
+
+    // -------- firma (transizione Bozza -> FirmatoCse) -------------------
+    // Operazione composta in UNA transazione:
+    //   1. Lock + verifica Stato == Bozza (idempotenza: due click sul bottone non firmano due volte)
+    //   2. Calcola Numero come MAX(Numero)+1 per l'Anno dato (UNIQUE filtrato gestisce race)
+    //   3. INSERT in Firma (PK verbaleId+Tipo)
+    //   4. UPDATE Verbale: Stato=FirmatoCse, Numero, Anno, UpdatedAt
+    //   5. INSERT in VerbaleAudit (EventoTipo=Firma)
+    // Restituisce il (Numero, Anno) assegnato. Il filesystem (PNG firma) NON e'
+    // toccato qui — il chiamante deve averlo gia' salvato prima di chiamare.
+    Task<FirmaCseResult> FirmaCseAsync(
+        Guid verbaleId,
+        int anno,
+        string nomeFirmatario,
+        DateOnly dataFirma,
+        string immagineFirmaPath,
+        Guid utenteId,
+        CancellationToken ct = default);
 }
+
+// Risultato della firma CSE. NumeroAssegnato e' il numero progressivo finale.
+public sealed record FirmaCseResult(int NumeroAssegnato, int Anno);

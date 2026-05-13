@@ -447,6 +447,172 @@ public class VerbaleRepositoryTests
         }
     }
 
+    // --------- firma CSE (B.10) ------------------------------------------
+
+    [Fact]
+    public async Task FirmaCseAsync_su_bozza_assegna_Numero_progressivo_e_passa_a_FirmatoCse()
+    {
+        var verbaleRepo = new VerbaleRepository(_factory);
+        var firmaRepo = new FirmaRepository(_factory);
+        var anagrafiche = await SeedAnagraficheAsync();
+        var verbaleId = Guid.NewGuid();
+        var verbale = BuildBozza(verbaleId, anagrafiche);
+        var audit = new VerbaleAudit
+        {
+            Id = Guid.NewGuid(),
+            VerbaleId = verbaleId,
+            UtenteId = anagrafiche.UtenteId,
+            DataEvento = DateTime.UtcNow,
+            EventoTipo = EventoAuditTipo.Creazione,
+        };
+        var anno = DateTime.UtcNow.Year;
+
+        try
+        {
+            await verbaleRepo.CreateBozzaWithChildrenAsync(
+                verbale,
+                Array.Empty<VerbaleAttivita>(),
+                Array.Empty<VerbaleDocumento>(),
+                Array.Empty<VerbaleApprestamento>(),
+                Array.Empty<VerbaleCondizioneAmbientale>(),
+                audit);
+
+            // Snapshot del max numero pre-firma per asserire la progressione
+            // senza assumere uno stato DB iniziale specifico.
+            await using var probeConn = await _factory.CreateOpenConnectionAsync();
+            var maxPrima = await probeConn.ExecuteScalarAsync<int?>(
+                "SELECT MAX(Numero) FROM dbo.Verbale WHERE Anno = @Anno AND Numero IS NOT NULL;",
+                new { Anno = anno }) ?? 0;
+
+            var result = await verbaleRepo.FirmaCseAsync(
+                verbaleId, anno, "Ing. Test Firmatario",
+                DateOnly.FromDateTime(DateTime.UtcNow),
+                $"firme/{verbaleId}/cse.png",
+                anagrafiche.UtenteId);
+
+            Assert.Equal(maxPrima + 1, result.NumeroAssegnato);
+            Assert.Equal(anno, result.Anno);
+
+            var read = await verbaleRepo.GetByIdAsync(verbaleId);
+            Assert.NotNull(read);
+            Assert.Equal(StatoVerbale.FirmatoCse, read!.Stato);
+            Assert.Equal(result.NumeroAssegnato, read.Numero);
+            Assert.Equal(anno, read.Anno);
+
+            var firma = await firmaRepo.GetByVerbaleAndTipoAsync(verbaleId, TipoFirmatario.Cse);
+            Assert.NotNull(firma);
+            Assert.Equal("Ing. Test Firmatario", firma!.NomeFirmatario);
+            Assert.Equal($"firme/{verbaleId}/cse.png", firma.ImmagineFirmaPath);
+
+            // Audit: 1 riga Creazione + 1 riga Firma = 2.
+            var auditCount = await probeConn.QuerySingleAsync<int>(
+                "SELECT COUNT(*) FROM dbo.VerbaleAudit WHERE VerbaleId = @Id;",
+                new { Id = verbaleId });
+            Assert.Equal(2, auditCount);
+            var firmaAuditCount = await probeConn.QuerySingleAsync<int>(
+                "SELECT COUNT(*) FROM dbo.VerbaleAudit WHERE VerbaleId = @Id AND EventoTipo = @Tipo;",
+                new { Id = verbaleId, Tipo = EventoAuditTipo.Firma });
+            Assert.Equal(1, firmaAuditCount);
+        }
+        finally
+        {
+            await CleanupAsync(verbaleId, anagrafiche);
+        }
+    }
+
+    [Fact]
+    public async Task FirmaCseAsync_due_verbali_consecutivi_assegna_Numero_progressivo()
+    {
+        var verbaleRepo = new VerbaleRepository(_factory);
+        var anagrafiche = await SeedAnagraficheAsync();
+        var anno = DateTime.UtcNow.Year;
+        var v1 = Guid.NewGuid();
+        var v2 = Guid.NewGuid();
+
+        try
+        {
+            foreach (var id in new[] { v1, v2 })
+            {
+                var bozza = BuildBozza(id, anagrafiche);
+                var audit = new VerbaleAudit
+                {
+                    Id = Guid.NewGuid(),
+                    VerbaleId = id,
+                    UtenteId = anagrafiche.UtenteId,
+                    DataEvento = DateTime.UtcNow,
+                    EventoTipo = EventoAuditTipo.Creazione,
+                };
+                await verbaleRepo.CreateBozzaWithChildrenAsync(
+                    bozza,
+                    Array.Empty<VerbaleAttivita>(),
+                    Array.Empty<VerbaleDocumento>(),
+                    Array.Empty<VerbaleApprestamento>(),
+                    Array.Empty<VerbaleCondizioneAmbientale>(),
+                    audit);
+            }
+
+            var r1 = await verbaleRepo.FirmaCseAsync(
+                v1, anno, "Firmatario A", DateOnly.FromDateTime(DateTime.UtcNow),
+                $"firme/{v1}/cse.png", anagrafiche.UtenteId);
+            var r2 = await verbaleRepo.FirmaCseAsync(
+                v2, anno, "Firmatario B", DateOnly.FromDateTime(DateTime.UtcNow),
+                $"firme/{v2}/cse.png", anagrafiche.UtenteId);
+
+            Assert.Equal(r1.NumeroAssegnato + 1, r2.NumeroAssegnato);
+            Assert.Equal(anno, r1.Anno);
+            Assert.Equal(anno, r2.Anno);
+        }
+        finally
+        {
+            await CleanupAsync(v1, anagrafiche, deleteAnagrafiche: false);
+            await CleanupAsync(v2, anagrafiche);
+        }
+    }
+
+    [Fact]
+    public async Task FirmaCseAsync_su_verbale_gia_firmato_lancia_InvalidOperationException()
+    {
+        var verbaleRepo = new VerbaleRepository(_factory);
+        var anagrafiche = await SeedAnagraficheAsync();
+        var verbaleId = Guid.NewGuid();
+        var verbale = BuildBozza(verbaleId, anagrafiche);
+        var audit = new VerbaleAudit
+        {
+            Id = Guid.NewGuid(),
+            VerbaleId = verbaleId,
+            UtenteId = anagrafiche.UtenteId,
+            DataEvento = DateTime.UtcNow,
+            EventoTipo = EventoAuditTipo.Creazione,
+        };
+        var anno = DateTime.UtcNow.Year;
+
+        try
+        {
+            await verbaleRepo.CreateBozzaWithChildrenAsync(
+                verbale,
+                Array.Empty<VerbaleAttivita>(),
+                Array.Empty<VerbaleDocumento>(),
+                Array.Empty<VerbaleApprestamento>(),
+                Array.Empty<VerbaleCondizioneAmbientale>(),
+                audit);
+
+            // Prima firma OK.
+            await verbaleRepo.FirmaCseAsync(
+                verbaleId, anno, "Firmatario", DateOnly.FromDateTime(DateTime.UtcNow),
+                $"firme/{verbaleId}/cse.png", anagrafiche.UtenteId);
+
+            // Seconda firma: il verbale e' FirmatoCse, non Bozza → eccezione.
+            await Assert.ThrowsAsync<InvalidOperationException>(() =>
+                verbaleRepo.FirmaCseAsync(
+                    verbaleId, anno, "Firmatario", DateOnly.FromDateTime(DateTime.UtcNow),
+                    $"firme/{verbaleId}/cse.png", anagrafiche.UtenteId));
+        }
+        finally
+        {
+            await CleanupAsync(verbaleId, anagrafiche);
+        }
+    }
+
     // --------- helpers ----------------------------------------------------
 
     private sealed record AnagraficheSeed(
@@ -524,12 +690,13 @@ public class VerbaleRepositoryTests
             $"SELECT COUNT(*) FROM dbo.{table} WHERE VerbaleId = @VerbaleId",
             new { VerbaleId = verbaleId });
 
-    private async Task CleanupAsync(Guid verbaleId, AnagraficheSeed a)
+    private async Task CleanupAsync(Guid verbaleId, AnagraficheSeed a, bool deleteAnagrafiche = true)
     {
         // Ordine: prima Verbale (cascade libera figlie e audit),
         // poi anagrafiche (FK NO ACTION richiede ordine esplicito).
         await using var conn = await _factory.CreateOpenConnectionAsync();
         await conn.ExecuteAsync("DELETE FROM dbo.Verbale WHERE Id = @Id", new { Id = verbaleId });
+        if (!deleteAnagrafiche) return;
         await conn.ExecuteAsync("DELETE FROM dbo.Utente WHERE Id = @Id", new { Id = a.UtenteId });
         await conn.ExecuteAsync("DELETE FROM dbo.Persona WHERE Id = @Id", new { Id = a.PersonaId });
         await conn.ExecuteAsync("DELETE FROM dbo.ImpresaAppaltatrice WHERE Id = @Id", new { Id = a.ImpresaId });

@@ -39,6 +39,8 @@ builder.Services.Configure<StorageOptions>(
     builder.Configuration.GetSection(StorageOptions.SectionName));
 builder.Services.AddSingleton<ISqlConnectionFactory, SqlConnectionFactory>();
 builder.Services.AddSingleton<IFotoStorageService, LocalFotoStorageService>();
+builder.Services.AddSingleton<IFirmaStorageService, LocalFirmaStorageService>();
+builder.Services.AddSingleton(TimeProvider.System);
 
 // Repository (Dapper). Lifetime Scoped: una connessione per richiesta HTTP.
 builder.Services.AddScoped<ICantiereRepository, CantiereRepository>();
@@ -52,6 +54,7 @@ builder.Services.AddScoped<ICatalogoTipoApprestamentoRepository, CatalogoTipoApp
 builder.Services.AddScoped<ICatalogoTipoCondizioneAmbientaleRepository, CatalogoTipoCondizioneAmbientaleRepository>();
 builder.Services.AddScoped<IVerbaleRepository, VerbaleRepository>();
 builder.Services.AddScoped<IFotoRepository, FotoRepository>();
+builder.Services.AddScoped<IFirmaRepository, FirmaRepository>();
 
 // Manager. Lifetime Scoped (1:1 con Repository).
 builder.Services.AddScoped<ICantiereManager, CantiereManager>();
@@ -105,6 +108,7 @@ var app = builder.Build();
 // UploadsBasePath non valido, ecc.) invece di scoprirli alla prima richiesta.
 _ = app.Services.GetRequiredService<ISqlConnectionFactory>();
 _ = app.Services.GetRequiredService<IFotoStorageService>();
+_ = app.Services.GetRequiredService<IFirmaStorageService>();
 
 // Configure the HTTP request pipeline.
 if (!app.Environment.IsDevelopment())
@@ -196,6 +200,32 @@ app.MapGet("/api/foto/{id:guid}/thumb", async (
     var thumbPath = storage.GetThumbPathRelativo(foto.FilePathRelativo);
     var stream = await storage.ApriLetturaAsync(thumbPath, ct);
     return Results.File(stream, "image/jpeg", enableRangeProcessing: false);
+}).RequireAuthorization();
+
+// Endpoint serving immagini firma (PNG). RequireAuthorization() come per le foto.
+// Il tipo arriva in route segment come stringa "cse" | "impresa".
+app.MapGet("/api/firme/{verbaleId:guid}/{tipo}", async (
+    Guid verbaleId,
+    string tipo,
+    IFirmaRepository repo,
+    IFirmaStorageService storage,
+    CancellationToken ct) =>
+{
+    if (!Enum.TryParse<TipoFirmatario>(tipo, ignoreCase: true, out var tipoEnum))
+    {
+        // Accetta anche "impresa" -> ImpresaAppaltatrice come alias breve.
+        if (string.Equals(tipo, "impresa", StringComparison.OrdinalIgnoreCase))
+            tipoEnum = TipoFirmatario.ImpresaAppaltatrice;
+        else
+            return Results.NotFound();
+    }
+
+    var firma = await repo.GetByVerbaleAndTipoAsync(verbaleId, tipoEnum, ct);
+    if (firma is null || string.IsNullOrEmpty(firma.ImmagineFirmaPath))
+        return Results.NotFound();
+
+    var stream = await storage.ApriLetturaAsync(firma.ImmagineFirmaPath, ct);
+    return Results.File(stream, "image/png", enableRangeProcessing: false);
 }).RequireAuthorization();
 
 app.Run();

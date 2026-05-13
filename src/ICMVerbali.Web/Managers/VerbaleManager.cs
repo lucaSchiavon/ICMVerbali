@@ -3,6 +3,7 @@ using ICMVerbali.Web.Entities.Enums;
 using ICMVerbali.Web.Managers.Interfaces;
 using ICMVerbali.Web.Models;
 using ICMVerbali.Web.Repositories.Interfaces;
+using ICMVerbali.Web.Storage;
 
 namespace ICMVerbali.Web.Managers;
 
@@ -13,19 +14,25 @@ public sealed class VerbaleManager : IVerbaleManager
     private readonly ICatalogoTipoDocumentoRepository _catDocumenti;
     private readonly ICatalogoTipoApprestamentoRepository _catApprestamenti;
     private readonly ICatalogoTipoCondizioneAmbientaleRepository _catCondizioniAmb;
+    private readonly IFirmaStorageService _firmaStorage;
+    private readonly TimeProvider _clock;
 
     public VerbaleManager(
         IVerbaleRepository repo,
         ICatalogoTipoAttivitaRepository catAttivita,
         ICatalogoTipoDocumentoRepository catDocumenti,
         ICatalogoTipoApprestamentoRepository catApprestamenti,
-        ICatalogoTipoCondizioneAmbientaleRepository catCondizioniAmb)
+        ICatalogoTipoCondizioneAmbientaleRepository catCondizioniAmb,
+        IFirmaStorageService firmaStorage,
+        TimeProvider clock)
     {
         _repo = repo;
         _catAttivita = catAttivita;
         _catDocumenti = catDocumenti;
         _catApprestamenti = catApprestamenti;
         _catCondizioniAmb = catCondizioniAmb;
+        _firmaStorage = firmaStorage;
+        _clock = clock;
     }
 
     public async Task<Verbale> CreaBozzaAsync(
@@ -214,18 +221,79 @@ public sealed class VerbaleManager : IVerbaleManager
         // Normalizza: scarta righe con Testo vuoto/null, rinumera Ordine 1..N
         // sull'ordine in cui arrivano (la UI controlla l'ordine con move up/down).
         // Forza VerbaleId al valore passato per difesa (mai fidarsi del client).
-        // Genera nuovi Id per righe nuove (Id == Guid.Empty).
-        var normalized = rows
-            .Where(r => !string.IsNullOrWhiteSpace(r.Testo))
-            .Select((r, i) => new PrescrizioneCse
+        // Genera nuovi Id per righe nuove (Id == Guid.Empty) e per qualsiasi Id
+        // duplicato all'interno della stessa lista (vista 2026-05-13: una race
+        // tra OnBlur autosave e Submit click puo' ripresentare lo stesso Id due
+        // volte, causando PK violation in ReplacePrescrizioniAsync. La difesa qui
+        // garantisce che il batch INSERT non incontri mai duplicati anche se
+        // l'UI dovesse essere bacata).
+        var seen = new HashSet<Guid>();
+        var normalized = new List<PrescrizioneCse>();
+        var ordine = 0;
+        foreach (var r in rows)
+        {
+            if (string.IsNullOrWhiteSpace(r.Testo)) continue;
+            ordine++;
+            var id = r.Id;
+            if (id == Guid.Empty || !seen.Add(id))
             {
-                Id = r.Id == Guid.Empty ? Guid.NewGuid() : r.Id,
+                id = Guid.NewGuid();
+                seen.Add(id);
+            }
+            normalized.Add(new PrescrizioneCse
+            {
+                Id = id,
                 VerbaleId = verbaleId,
                 Testo = r.Testo.Trim(),
-                Ordine = i + 1,
-            })
-            .ToList();
+                Ordine = ordine,
+            });
+        }
 
         return _repo.ReplacePrescrizioniAsync(verbaleId, normalized, ct);
+    }
+
+    // -------- firma CSE (Bozza -> FirmatoCse) ----------------------------
+    public async Task<FirmaCseResult> FirmaCseAsync(
+        Guid verbaleId,
+        string nomeFirmatario,
+        byte[] pngBytes,
+        Guid utenteId,
+        CancellationToken ct = default)
+    {
+        ArgumentNullException.ThrowIfNull(pngBytes);
+        if (pngBytes.Length == 0)
+            throw new ArgumentException("Immagine firma vuota.", nameof(pngBytes));
+        if (string.IsNullOrWhiteSpace(nomeFirmatario))
+            throw new ArgumentException("Nome firmatario obbligatorio.", nameof(nomeFirmatario));
+
+        // 1. Carica verbale e verifica stato.
+        var verbale = await _repo.GetByIdAsync(verbaleId, ct)
+            ?? throw new InvalidOperationException($"Verbale {verbaleId} non trovato.");
+        if (verbale.Stato != StatoVerbale.Bozza)
+            throw new InvalidOperationException(
+                $"Verbale {verbaleId} non e' in Bozza (stato attuale: {verbale.Stato}).");
+
+        // 2. Validazione hard: anagrafiche + esito + meteo.
+        var validation = VerbaleValidator.PuoFirmare(verbale);
+        if (!validation.IsValid)
+            throw new VerbaleNonFirmabileException(validation.Errori);
+
+        // 3. Salva PNG su storage prima della transazione DB. Se fallisce, niente
+        // riga di firma su DB. Se la transazione DB poi fallisce, il PNG resta
+        // orfano sul filesystem: accettabile (GC futuro, pattern di B.9 per le foto).
+        var storageResult = await _firmaStorage.SalvaAsync(
+            verbaleId, TipoFirmatario.Cse, pngBytes, ct);
+
+        // 4. Anno della firma = anno corrente UTC. La numerazione si resetta al
+        // 1 gennaio. Una bozza creata a fine dicembre ma firmata a gennaio prende
+        // il numero del nuovo anno (decisione design 2026-05-13).
+        var now = _clock.GetUtcNow().UtcDateTime;
+        var anno = now.Year;
+        var dataFirma = DateOnly.FromDateTime(now);
+
+        // 5. Transazione DB: Numero/Anno + Firma + UPDATE stato + audit.
+        return await _repo.FirmaCseAsync(
+            verbaleId, anno, nomeFirmatario.Trim(), dataFirma,
+            storageResult.FilePathRelativo, utenteId, ct);
     }
 }

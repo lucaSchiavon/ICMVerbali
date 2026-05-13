@@ -89,7 +89,6 @@
     else if (_currentStep == 10 && _verbale is not null)
     {
         <WizardStep10Riepilogo Existing="_verbale"
-                               OnSubmit="HandleStep10SubmitAsync"
                                OnBack="@(() => GoToStep(9))" />
     }
     else
@@ -117,9 +116,8 @@
     private int _currentStep = 1;
     private bool _loading = true;
 
-    // B.8d completa: tutti gli step 1-10 raggiungibili. Step 9 e' un placeholder
-    // (upload foto reale in B.9); "Salva e firma" nello step 10 e' dummy
-    // (transizione FirmatoCse + Numero/Anno in B.9 / B.10).
+    // Tutti gli step 1-10 raggiungibili. Step 10 chiude il flow firmando il
+    // verbale via SignaturePadDialog (transizione Bozza -> FirmatoCse).
     private static readonly IReadOnlyList<int> _reachableSteps =
         new[] { 1, 2, 3, 4, 5, 6, 7, 8, 9, 10 };
 
@@ -264,9 +262,19 @@
     private async Task HandleStep8SubmitAsync(IReadOnlyList<PrescrizioneCse> items)
     {
         if (_verbale is null) return;
-        await VerbaleManager.UpdatePrescrizioniAsync(_verbale.Id, items);
-        Snackbar.Add("Prescrizioni salvate.", Severity.Success);
-        Nav.NavigateTo($"/verbali/{_verbale.Id}/step/9");
+        try
+        {
+            await VerbaleManager.UpdatePrescrizioniAsync(_verbale.Id, items);
+            Snackbar.Add("Prescrizioni salvate.", Severity.Success);
+            Nav.NavigateTo($"/verbali/{_verbale.Id}/step/9");
+        }
+        catch (Exception ex)
+        {
+            // Difesa: un'eccezione qui senza try/catch crasha il circuito
+            // SignalR e l'intera UI smette di rispondere finche' l'utente non
+            // ricarica la pagina (es. PK violation race-induced, 2026-05-13).
+            Snackbar.Add($"Errore nel salvataggio delle prescrizioni: {ex.Message}", Severity.Error);
+        }
     }
 
     // Step 9 e' placeholder: nessun salvataggio, solo navigazione.
@@ -274,13 +282,6 @@
     {
         if (_verbale is null) return;
         Nav.NavigateTo($"/verbali/{_verbale.Id}/step/10");
-    }
-
-    // Dummy in B.8d: la firma reale (FirmatoCse + Numero/Anno + audit) arriva
-    // in B.9 / B.10. Per ora avvisiamo l'utente che la fase di firma e' stub.
-    private void HandleStep10SubmitAsync()
-    {
-        Snackbar.Add("Firma del verbale non ancora attiva (in lavorazione, B.9 / B.10).", Severity.Info);
     }
 
     private void HandleCancelAsync() => Nav.NavigateTo("/");

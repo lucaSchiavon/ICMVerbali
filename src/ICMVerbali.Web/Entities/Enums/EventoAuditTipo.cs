@@ -7,4 +7,5 @@ public enum EventoAuditTipo : byte
     Creazione = 0,
     TransizioneStato = 1,
     Eliminazione = 2,
+    Firma = 3,
 }

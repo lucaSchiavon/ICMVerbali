@@ -105,6 +105,14 @@
     private AutoSaveStatus _autoSaveStatus = AutoSaveStatus.Idle;
     private List<PrescrizioneCse> _items = new();
 
+    // Serializza AutoSave e Submit: l'OnBlur del MudTextField scatta in
+    // contemporanea al click di "Salva e prosegui" (perdita di focus dovuta
+    // al click), generando due chiamate concorrenti a UpdatePrescrizioniAsync.
+    // Senza questo lock, il batch INSERT del repository puo' incontrare lo
+    // stesso Id due volte (race condition vista live 2026-05-13: PK violation
+    // su PrescrizioneCse, eccezione non gestita che faceva cadere il circuito).
+    private readonly SemaphoreSlim _saveLock = new(1, 1);
+
     protected override async Task OnInitializedAsync()
     {
         var rows = await VerbaleManager.GetPrescrizioniAsync(VerbaleId);
@@ -146,22 +154,48 @@
     private async Task HandleSubmitAsync()
     {
         _saving = true;
-        await OnSubmit.InvokeAsync(_items);
-        _saving = false;
+        StateHasChanged();
+        try
+        {
+            // Aspetta l'eventuale AutoSave gia' in volo, poi invoca OnSubmit
+            // con la lista corrente. Cosi' il manager riceve sempre una lista
+            // consistente, mai due chiamate concorrenti con la stessa sorgente.
+            await _saveLock.WaitAsync();
+            try
+            {
+                await OnSubmit.InvokeAsync(_items);
+            }
+            finally
+            {
+                _saveLock.Release();
+            }
+        }
+        finally
+        {
+            _saving = false;
+        }
     }
 
     private async Task AutoSaveAsync()
     {
-        _autoSaveStatus = AutoSaveStatus.Saving;
-        StateHasChanged();
+        // WaitAsync(0): se un altro save e' in corso, skippiamo questo round.
+        // Il save piu' recente vincera' comunque (e' chiamato di nuovo al
+        // prossimo blur/move/remove).
+        if (!await _saveLock.WaitAsync(0)) return;
         try
         {
+            _autoSaveStatus = AutoSaveStatus.Saving;
+            StateHasChanged();
             await VerbaleManager.UpdatePrescrizioniAsync(VerbaleId, _items);
             _autoSaveStatus = AutoSaveStatus.Saved;
         }
         catch
         {
             _autoSaveStatus = AutoSaveStatus.Error;
+        }
+        finally
+        {
+            _saveLock.Release();
         }
     }
 }

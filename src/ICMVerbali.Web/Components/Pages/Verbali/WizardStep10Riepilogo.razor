@@ -3,15 +3,17 @@
     Carica in parallelo: anagrafiche (Cantiere/Committente/Impresa/4 Persone)
     e i dati delle 4 checklist + prescrizioni dal manager Verbale.
 
-    "Salva e firma" e' un dummy in B.8d: emette OnSubmit al wizard parent che
-    mostra solo uno snackbar. La firma reale (transizione FirmatoCse +
-    assegnazione Numero/Anno) arrivera' nelle sotto-fasi B.9 / B.10.
+    "Salva e firma" (B.10) apre SignaturePadDialog: canvas + nome firmatario CSE
+    pre-compilato dall'anagrafica + Conferma. Su success il dialog ritorna
+    FirmaCseResult con Numero/Anno assegnato e questo step naviga alla Home.
 *@
 
+@using ICMVerbali.Web.Components.Shared
 @using ICMVerbali.Web.Entities
 @using ICMVerbali.Web.Entities.Enums
 @using ICMVerbali.Web.Managers.Interfaces
 @using ICMVerbali.Web.Models
+@using ICMVerbali.Web.Repositories.Interfaces
 
 @inject IVerbaleManager VerbaleManager
 @inject ICantiereManager CantiereManager
@@ -19,6 +21,9 @@
 @inject IImpresaAppaltatriceManager ImpresaManager
 @inject IPersonaManager PersonaManager
 @inject IFotoManager FotoManager
+@inject IDialogService DialogService
+@inject ISnackbar Snackbar
+@inject NavigationManager Nav
 
 <MudPaper Class="pa-6" Elevation="1">
     <MudText Typo="Typo.h6" GutterBottom="true">Sezione 10 — Riepilogo del verbale</MudText>
@@ -248,7 +253,6 @@
 
 @code {
     [Parameter, EditorRequired] public Verbale Existing { get; set; } = null!;
-    [Parameter] public EventCallback OnSubmit { get; set; }
     [Parameter] public EventCallback OnBack { get; set; }
 
     private bool _loading = true;
@@ -310,9 +314,38 @@
 
     private async Task HandleFirmaAsync()
     {
+        if (_signing) return;
         _signing = true;
-        await OnSubmit.InvokeAsync();
-        _signing = false;
+        try
+        {
+            var parameters = new DialogParameters
+            {
+                [nameof(SignaturePadDialog.VerbaleId)] = Existing.Id,
+                [nameof(SignaturePadDialog.NomeFirmatarioSuggerito)] = _cse?.Nominativo ?? string.Empty,
+            };
+            var options = new DialogOptions
+            {
+                CloseButton = false,
+                CloseOnEscapeKey = false,
+                BackdropClick = false,
+                MaxWidth = MaxWidth.Small,
+                FullWidth = true,
+            };
+            var dialog = await DialogService.ShowAsync<SignaturePadDialog>("Firma CSE", parameters, options);
+            var result = await dialog.Result;
+
+            if (result is { Canceled: false, Data: FirmaCseResult firma })
+            {
+                Snackbar.Add(
+                    $"Verbale firmato. Numero assegnato: {firma.NumeroAssegnato}/{firma.Anno}.",
+                    Severity.Success);
+                Nav.NavigateTo("/");
+            }
+        }
+        finally
+        {
+            _signing = false;
+        }
     }
 
     private static bool IsAltro(string? codice)
