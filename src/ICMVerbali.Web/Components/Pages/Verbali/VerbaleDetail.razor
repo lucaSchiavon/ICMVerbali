@@ -3,12 +3,18 @@
     verbale + entrambe le firme renderizzate via /api/firme/{id}/{tipo} (endpoint
     autenticato). Bottoni: "Indietro" e "Stampa" (window.print() con CSS print).
     Linkata dalla Home per verbali con Stato != Bozza.
+
+    B.12: per i verbali in stato FirmatoCse mostra anche il blocco "Link firma
+    Impresa" con il magic-link attivo (se presente) e i bottoni Copia/Rigenera.
 *@
 
 @page "/verbali/{Id:guid}"
 @attribute [Authorize]
 @rendermode InteractiveServer
+@implements IAsyncDisposable
 
+@using System.Security.Claims
+@using ICMVerbali.Web.Components.Shared
 @using ICMVerbali.Web.Entities
 @using ICMVerbali.Web.Entities.Enums
 @using ICMVerbali.Web.Managers.Interfaces
@@ -22,6 +28,9 @@
 @inject IPersonaManager PersonaManager
 @inject IFotoManager FotoManager
 @inject IFirmaRepository FirmaRepo
+@inject IFirmaTokenManager FirmaTokenManager
+@inject IDialogService DialogService
+@inject ISnackbar Snackbar
 @inject NavigationManager Nav
 @inject IJSRuntime JS
 
@@ -230,6 +239,61 @@
             </MudPaper>
         }
 
+        @* --- Link firma Impresa (B.12) --------------------------------- *@
+        @if (_verbale.Stato == StatoVerbale.FirmatoCse)
+        {
+            <MudPaper Class="pa-4 mb-3 no-print" Elevation="1">
+                <MudStack Spacing="3">
+                    <MudText Typo="Typo.subtitle1"><strong>Link firma Impresa</strong></MudText>
+                    @if (_linkAttivo is not null)
+                    {
+                        <MudText Typo="Typo.body2">
+                            Condividi questo link con l'Impresa Appaltatrice per la sua firma.
+                            Scade il @_linkAttivo.ScadenzaUtc.ToLocalTime().ToString("dd/MM/yyyy HH:mm")
+                            e puo' essere usato una sola volta.
+                        </MudText>
+                        <MudTextField T="string"
+                                      Value="@BuildLinkUrl(_linkAttivo.Token)"
+                                      Label="Magic-link"
+                                      ReadOnly="true"
+                                      Variant="Variant.Outlined"
+                                      Lines="2" />
+                        <MudStack Row="true" Spacing="2">
+                            <MudButton OnClick="@(() => HandleCopyAsync(_linkAttivo.Token))"
+                                       Variant="Variant.Filled"
+                                       Color="Color.Primary"
+                                       StartIcon="@Icons.Material.Filled.ContentCopy"
+                                       Disabled="_rigenerando">
+                                Copia link
+                            </MudButton>
+                            <MudButton OnClick="HandleRigeneraAsync"
+                                       Variant="Variant.Outlined"
+                                       Color="Color.Secondary"
+                                       StartIcon="@Icons.Material.Filled.Autorenew"
+                                       Disabled="_rigenerando">
+                                Rigenera link
+                            </MudButton>
+                        </MudStack>
+                    }
+                    else
+                    {
+                        <MudAlert Severity="Severity.Warning" Variant="Variant.Outlined">
+                            Nessun link attivo: il precedente magic-link e' scaduto, gia' usato o revocato.
+                        </MudAlert>
+                        <MudStack Row="true">
+                            <MudButton OnClick="HandleRigeneraAsync"
+                                       Variant="Variant.Filled"
+                                       Color="Color.Primary"
+                                       StartIcon="@Icons.Material.Filled.Link"
+                                       Disabled="_rigenerando">
+                                Genera nuovo link
+                            </MudButton>
+                        </MudStack>
+                    }
+                </MudStack>
+            </MudPaper>
+        }
+
         @* --- 10. Firme ------------------------------------------------- *@
         <MudPaper Class="pa-4 mb-3" Elevation="1">
             <MudText Typo="Typo.subtitle1" Class="mb-2"><strong>10. Firme</strong></MudText>
@@ -286,6 +350,8 @@
 @code {
     [Parameter] public Guid Id { get; set; }
 
+    [CascadingParameter] private Task<AuthenticationState> AuthStateTask { get; set; } = null!;
+
     private bool _loading = true;
     private Verbale? _verbale;
     private Cantiere? _cantiere;
@@ -304,6 +370,12 @@
     private IReadOnlyList<Foto> _foto = Array.Empty<Foto>();
     private Firma? _firmaCse;
     private Firma? _firmaImpresa;
+
+    // B.12: lazy-import del modulo clipboard. Usiamo lo stesso pattern di
+    // LinkImpresaDialog (fallback document.execCommand su contesti non-secure).
+    private FirmaToken? _linkAttivo;
+    private IJSObjectReference? _clipboardModule;
+    private bool _rigenerando;
 
     protected override async Task OnInitializedAsync()
     {
@@ -354,12 +426,112 @@
         _firmaCse = firme.FirstOrDefault(f => f.Tipo == TipoFirmatario.Cse);
         _firmaImpresa = firme.FirstOrDefault(f => f.Tipo == TipoFirmatario.ImpresaAppaltatrice);
 
+        // B.12: solo per i verbali in FirmatoCse ha senso cercare un link attivo.
+        if (_verbale.Stato == StatoVerbale.FirmatoCse)
+            _linkAttivo = await FirmaTokenManager.GetLinkAttivoAsync(_verbale.Id);
+
         _loading = false;
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender) return;
+        try
+        {
+            _clipboardModule = await JS.InvokeAsync<IJSObjectReference>("import", "/js/clipboard.js");
+        }
+        catch
+        {
+            // Fallback: HandleCopyAsync segnala la copia non riuscita e l'utente
+            // puo' selezionare manualmente il MudTextField ReadOnly.
+        }
     }
 
     private async Task HandlePrint()
     {
         await JS.InvokeVoidAsync("window.print");
+    }
+
+    private string BuildLinkUrl(Guid token) => $"{Nav.BaseUri}firma-impresa/{token}";
+
+    private async Task HandleCopyAsync(Guid token)
+    {
+        var url = BuildLinkUrl(token);
+        try
+        {
+            var ok = _clipboardModule is not null
+                && await _clipboardModule.InvokeAsync<bool>("copy", url);
+            if (ok)
+                Snackbar.Add("Link copiato negli appunti.", Severity.Success);
+            else
+                Snackbar.Add("Copia non riuscita. Seleziona il link manualmente dal campo.", Severity.Warning);
+        }
+        catch
+        {
+            Snackbar.Add("Copia non disponibile. Seleziona il link manualmente dal campo.", Severity.Warning);
+        }
+    }
+
+    private async Task HandleRigeneraAsync()
+    {
+        if (_verbale is null || _rigenerando) return;
+
+        // Confermo solo quando esiste gia' un link attivo: rigenerare lo invalida
+        // immediatamente e qualunque copia gia' inviata smette di funzionare.
+        if (_linkAttivo is not null)
+        {
+            var conferma = await DialogService.ShowMessageBoxAsync(new MudBlazor.MessageBoxOptions
+            {
+                Title = "Rigenera link",
+                Message = "Il link attualmente attivo verra' invalidato. " +
+                          "Eventuali copie gia' inviate all'Impresa smetteranno di funzionare. Procedere?",
+                YesText = "Rigenera",
+                CancelText = "Annulla",
+            });
+            if (conferma != true) return;
+        }
+
+        _rigenerando = true;
+        try
+        {
+            var auth = await AuthStateTask;
+            var utenteIdStr = auth.User.FindFirstValue(ClaimTypes.NameIdentifier);
+            if (!Guid.TryParse(utenteIdStr, out var utenteId))
+            {
+                Snackbar.Add("Utente non identificato. Effettua di nuovo il login.", Severity.Error);
+                return;
+            }
+
+            var nuovoToken = await FirmaTokenManager.RigeneraTokenAsync(_verbale.Id, utenteId);
+            _linkAttivo = await FirmaTokenManager.GetLinkAttivoAsync(_verbale.Id);
+
+            var linkParams = new DialogParameters
+            {
+                [nameof(LinkImpresaDialog.LinkUrl)] = BuildLinkUrl(nuovoToken),
+                [nameof(LinkImpresaDialog.Numero)] = _verbale.Numero ?? 0,
+                [nameof(LinkImpresaDialog.Anno)] = _verbale.Anno ?? 0,
+            };
+            var linkOptions = new DialogOptions
+            {
+                CloseButton = false,
+                CloseOnEscapeKey = false,
+                BackdropClick = false,
+                MaxWidth = MaxWidth.Small,
+                FullWidth = true,
+            };
+            var dialog = await DialogService.ShowAsync<LinkImpresaDialog>(
+                $"Nuovo link verbale {_verbale.Numero}/{_verbale.Anno}",
+                linkParams, linkOptions);
+            await dialog.Result;
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"Rigenerazione fallita: {ex.Message}", Severity.Error);
+        }
+        finally
+        {
+            _rigenerando = false;
+        }
     }
 
     private string FormatNumero()
@@ -422,4 +594,12 @@
         SottosezioneApprestamento.Impianti => "5.4 Impianti",
         _ => s.ToString(),
     };
+
+    public async ValueTask DisposeAsync()
+    {
+        if (_clipboardModule is not null)
+        {
+            try { await _clipboardModule.DisposeAsync(); } catch { }
+        }
+    }
 }

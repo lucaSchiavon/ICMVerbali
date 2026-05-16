@@ -19,4 +19,6 @@ public enum FirmaTokenInvalidoMotivo : byte
     NonTrovato = 0,
     Scaduto = 1,
     GiaUsato = 2,
+    // B.12: il CSE ha rigenerato il magic-link e questo token e' stato invalidato.
+    Revocato = 3,
 }

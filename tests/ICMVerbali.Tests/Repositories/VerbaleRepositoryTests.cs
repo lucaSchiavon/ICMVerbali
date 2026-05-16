@@ -836,6 +836,194 @@ public class VerbaleRepositoryTests
         }
     }
 
+    // --------- rigenerazione token (B.12) --------------------------------
+
+    [Fact]
+    public async Task RigeneraAsync_revoca_token_attivi_e_inserisce_nuovo_con_audit()
+    {
+        var verbaleRepo = new VerbaleRepository(_factory);
+        var firmaTokenRepo = new FirmaTokenRepository(_factory);
+        var anagrafiche = await SeedAnagraficheAsync();
+        var verbaleId = Guid.CreateVersion7();
+        var verbale = BuildBozza(verbaleId, anagrafiche);
+        var creazioneAudit = new VerbaleAudit
+        {
+            Id = Guid.CreateVersion7(),
+            VerbaleId = verbaleId,
+            UtenteId = anagrafiche.UtenteId,
+            DataEvento = DateTime.UtcNow,
+            EventoTipo = EventoAuditTipo.Creazione,
+        };
+        var primoTokenInputs = BuildTokenInputs();
+
+        try
+        {
+            await verbaleRepo.CreateBozzaWithChildrenAsync(
+                verbale,
+                Array.Empty<VerbaleAttivita>(),
+                Array.Empty<VerbaleDocumento>(),
+                Array.Empty<VerbaleApprestamento>(),
+                Array.Empty<VerbaleCondizioneAmbientale>(),
+                creazioneAudit);
+
+            await verbaleRepo.FirmaCseAsync(
+                verbaleId, DateTime.UtcNow.Year, "Firmatario CSE",
+                DateOnly.FromDateTime(DateTime.UtcNow),
+                $"firme/{verbaleId}/cse.png", anagrafiche.UtenteId, primoTokenInputs);
+
+            var nuovoTokenInputs = BuildTokenInputs();
+            await firmaTokenRepo.RigeneraAsync(verbaleId, nuovoTokenInputs, anagrafiche.UtenteId);
+
+            // Il primo token deve risultare revocato (non usato).
+            await using var conn = await _factory.CreateOpenConnectionAsync();
+            var primo = await conn.QuerySingleAsync<(DateTime? UsatoUtc, DateTime? RevocatoUtc)>(
+                "SELECT UsatoUtc, RevocatoUtc FROM dbo.FirmaToken WHERE Id = @Id;",
+                new { Id = primoTokenInputs.TokenId });
+            Assert.Null(primo.UsatoUtc);
+            Assert.NotNull(primo.RevocatoUtc);
+
+            // Il nuovo token e' presente, non usato, non revocato.
+            var nuovo = await conn.QuerySingleAsync<(DateTime? UsatoUtc, DateTime? RevocatoUtc)>(
+                "SELECT UsatoUtc, RevocatoUtc FROM dbo.FirmaToken WHERE Id = @Id;",
+                new { Id = nuovoTokenInputs.TokenId });
+            Assert.Null(nuovo.UsatoUtc);
+            Assert.Null(nuovo.RevocatoUtc);
+
+            // Audit: Creazione + Firma CSE + RigenerazioneToken = 3.
+            var auditTipi = (await conn.QueryAsync<byte>(
+                "SELECT EventoTipo FROM dbo.VerbaleAudit WHERE VerbaleId = @V ORDER BY DataEvento;",
+                new { V = verbaleId })).ToList();
+            Assert.Equal(3, auditTipi.Count);
+            Assert.Contains((byte)EventoAuditTipo.RigenerazioneToken, auditTipi);
+        }
+        finally
+        {
+            await CleanupAsync(verbaleId, anagrafiche);
+        }
+    }
+
+    [Fact]
+    public async Task GetUltimoAttivoAsync_ignora_usati_revocati_scaduti_e_torna_il_piu_recente()
+    {
+        var verbaleRepo = new VerbaleRepository(_factory);
+        var firmaTokenRepo = new FirmaTokenRepository(_factory);
+        var anagrafiche = await SeedAnagraficheAsync();
+        var verbaleId = Guid.CreateVersion7();
+        var verbale = BuildBozza(verbaleId, anagrafiche);
+        var creazioneAudit = new VerbaleAudit
+        {
+            Id = Guid.CreateVersion7(),
+            VerbaleId = verbaleId,
+            UtenteId = anagrafiche.UtenteId,
+            DataEvento = DateTime.UtcNow,
+            EventoTipo = EventoAuditTipo.Creazione,
+        };
+
+        try
+        {
+            await verbaleRepo.CreateBozzaWithChildrenAsync(
+                verbale,
+                Array.Empty<VerbaleAttivita>(),
+                Array.Empty<VerbaleDocumento>(),
+                Array.Empty<VerbaleApprestamento>(),
+                Array.Empty<VerbaleCondizioneAmbientale>(),
+                creazioneAudit);
+
+            // Stato iniziale: nessun token → null.
+            Assert.Null(await firmaTokenRepo.GetUltimoAttivoAsync(verbaleId));
+
+            // Firma CSE: crea il primo token attivo.
+            var t1 = BuildTokenInputs();
+            await verbaleRepo.FirmaCseAsync(
+                verbaleId, DateTime.UtcNow.Year, "Firmatario CSE",
+                DateOnly.FromDateTime(DateTime.UtcNow),
+                $"firme/{verbaleId}/cse.png", anagrafiche.UtenteId, t1);
+
+            var attivo = await firmaTokenRepo.GetUltimoAttivoAsync(verbaleId);
+            Assert.NotNull(attivo);
+            Assert.Equal(t1.TokenId, attivo!.Id);
+
+            // Rigenera: t1 → revocato, t2 attivo.
+            var t2 = BuildTokenInputs();
+            await firmaTokenRepo.RigeneraAsync(verbaleId, t2, anagrafiche.UtenteId);
+            attivo = await firmaTokenRepo.GetUltimoAttivoAsync(verbaleId);
+            Assert.Equal(t2.TokenId, attivo!.Id);
+
+            // Forzo t2 scaduto: deve sparire dagli attivi.
+            await using var conn = await _factory.CreateOpenConnectionAsync();
+            await conn.ExecuteAsync(
+                "UPDATE dbo.FirmaToken SET ScadenzaUtc = DATEADD(MINUTE, -1, SYSUTCDATETIME()) WHERE Id = @Id;",
+                new { Id = t2.TokenId });
+            Assert.Null(await firmaTokenRepo.GetUltimoAttivoAsync(verbaleId));
+
+            // Una nuova rigenerazione torna a fornire un attivo (t3).
+            var t3 = BuildTokenInputs();
+            await firmaTokenRepo.RigeneraAsync(verbaleId, t3, anagrafiche.UtenteId);
+            attivo = await firmaTokenRepo.GetUltimoAttivoAsync(verbaleId);
+            Assert.Equal(t3.TokenId, attivo!.Id);
+        }
+        finally
+        {
+            await CleanupAsync(verbaleId, anagrafiche);
+        }
+    }
+
+    [Fact]
+    public async Task FirmaImpresaAsync_token_revocato_lancia_InvalidOperationException()
+    {
+        // Difesa nel SqlMarkTokenUsato (B.12): un token revocato ma ancora dentro
+        // la finestra di scadenza non deve poter essere consumato neppure se la
+        // pagina FirmaImpresa fosse rimasta aperta sul vecchio link.
+        var verbaleRepo = new VerbaleRepository(_factory);
+        var firmaTokenRepo = new FirmaTokenRepository(_factory);
+        var anagrafiche = await SeedAnagraficheAsync();
+        var verbaleId = Guid.CreateVersion7();
+        var verbale = BuildBozza(verbaleId, anagrafiche);
+        var creazioneAudit = new VerbaleAudit
+        {
+            Id = Guid.CreateVersion7(),
+            VerbaleId = verbaleId,
+            UtenteId = anagrafiche.UtenteId,
+            DataEvento = DateTime.UtcNow,
+            EventoTipo = EventoAuditTipo.Creazione,
+        };
+        var t1 = BuildTokenInputs();
+
+        try
+        {
+            await verbaleRepo.CreateBozzaWithChildrenAsync(
+                verbale,
+                Array.Empty<VerbaleAttivita>(),
+                Array.Empty<VerbaleDocumento>(),
+                Array.Empty<VerbaleApprestamento>(),
+                Array.Empty<VerbaleCondizioneAmbientale>(),
+                creazioneAudit);
+
+            await verbaleRepo.FirmaCseAsync(
+                verbaleId, DateTime.UtcNow.Year, "Firmatario CSE",
+                DateOnly.FromDateTime(DateTime.UtcNow),
+                $"firme/{verbaleId}/cse.png", anagrafiche.UtenteId, t1);
+
+            // Rigenera: t1 viene revocato, t2 attivo.
+            var t2 = BuildTokenInputs();
+            await firmaTokenRepo.RigeneraAsync(verbaleId, t2, anagrafiche.UtenteId);
+
+            // Tentativo di firma impresa con il token revocato t1 → repository abortisce.
+            await Assert.ThrowsAsync<InvalidOperationException>(() =>
+                verbaleRepo.FirmaImpresaAsync(
+                    verbaleId, t1.TokenId, "Firmatario Impresa",
+                    DateOnly.FromDateTime(DateTime.UtcNow),
+                    "firme/x/impresa.png", anagrafiche.UtenteId));
+
+            var stato = await verbaleRepo.GetByIdAsync(verbaleId);
+            Assert.Equal(StatoVerbale.FirmatoCse, stato!.Stato);
+        }
+        finally
+        {
+            await CleanupAsync(verbaleId, anagrafiche);
+        }
+    }
+
     // --------- helpers ----------------------------------------------------
 
     private sealed record AnagraficheSeed(

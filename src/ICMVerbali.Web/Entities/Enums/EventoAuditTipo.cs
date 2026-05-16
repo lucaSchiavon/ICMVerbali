@@ -8,4 +8,7 @@ public enum EventoAuditTipo : byte
     TransizioneStato = 1,
     Eliminazione = 2,
     Firma = 3,
+    // B.12: il CSE rigenera il magic-link impresa, invalidando i token attivi
+    // precedenti senza eliminarli (tracciati per audit).
+    RigenerazioneToken = 4,
 }

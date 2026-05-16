@@ -399,6 +399,7 @@ else
         FirmaTokenInvalidoMotivo.NonTrovato => "Link non valido",
         FirmaTokenInvalidoMotivo.Scaduto => "Link scaduto",
         FirmaTokenInvalidoMotivo.GiaUsato => "Link gia' utilizzato",
+        FirmaTokenInvalidoMotivo.Revocato => "Link sostituito",
         _ => "Link non utilizzabile",
     };
 
@@ -410,6 +411,8 @@ else
             "Il link e' scaduto. Richiedi al CSE di generare un nuovo link.",
         FirmaTokenInvalidoMotivo.GiaUsato =>
             "Il link e' stato gia' usato per firmare. La firma e' gia' agli atti.",
+        FirmaTokenInvalidoMotivo.Revocato =>
+            "Il CSE ha generato un nuovo link per questo verbale. Richiedi quello aggiornato.",
         _ => "Il link non puo' essere utilizzato.",
     };
 

@@ -401,13 +401,14 @@ WHERE Id = @Id;";
 INSERT INTO dbo.FirmaToken (Id, VerbaleId, Token, ScadenzaUtc, UsatoUtc, CreatedAt)
 VALUES (@Id, @VerbaleId, @Token, @ScadenzaUtc, NULL, @CreatedAt);";
 
-    // Uso singolo del token: l'UPDATE va a buon fine solo se UsatoUtc e' NULL.
-    // Se due tab aprono lo stesso link e firmano insieme, il secondo riceve 0
-    // righe modificate e il chiamante lo traduce in errore.
+    // Uso singolo del token: l'UPDATE va a buon fine solo se UsatoUtc e' NULL e
+    // il token non e' stato revocato (B.12). Se due tab aprono lo stesso link e
+    // firmano insieme, il secondo riceve 0 righe modificate e il chiamante lo
+    // traduce in errore. Idem se il CSE rigenera il link tra apertura e submit.
     private const string SqlMarkTokenUsato = @"
 UPDATE dbo.FirmaToken
 SET UsatoUtc = SYSUTCDATETIME()
-WHERE Id = @Id AND UsatoUtc IS NULL;";
+WHERE Id = @Id AND UsatoUtc IS NULL AND RevocatoUtc IS NULL;";
 
     public async Task<FirmaCseResult> FirmaCseAsync(
         Guid verbaleId,

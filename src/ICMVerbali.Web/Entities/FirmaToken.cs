@@ -19,4 +19,10 @@ public sealed class FirmaToken
     public DateTime? UsatoUtc { get; set; }
 
     public DateTime CreatedAt { get; set; }
+
+    // Revoca esplicita: valorizzata quando il CSE rigenera il magic-link (B.12).
+    // I token revocati restano in tabella per audit; ValidaTokenAsync li rifiuta
+    // con motivo Revocato e RigeneraAsync invalida tutti gli attivi del verbale
+    // prima di inserirne uno nuovo.
+    public DateTime? RevocatoUtc { get; set; }
 }

@@ -174,5 +174,9 @@ public class VerbaleManagerPrescrizioniTests
             => new(Guid.CreateVersion7(), Guid.CreateVersion7(), DateTime.UtcNow.AddHours(48), DateTime.UtcNow);
         public Task<FirmaToken> ValidaTokenAsync(Guid token, CancellationToken ct = default)
             => throw new NotImplementedException();
+        public Task<FirmaToken?> GetLinkAttivoAsync(Guid verbaleId, CancellationToken ct = default)
+            => Task.FromResult<FirmaToken?>(null);
+        public Task<Guid> RigeneraTokenAsync(Guid verbaleId, Guid utenteId, CancellationToken ct = default)
+            => throw new NotImplementedException();
     }
 }
