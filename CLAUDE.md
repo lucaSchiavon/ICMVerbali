@@ -159,6 +159,37 @@ I **Nullable Reference Types** sono **sempre abilitati** (`<Nullable>enable</Nul
 - Iniettare i **Manager**, mai i Repository (`@inject IUserManager UserManager`)
 - Usare `IDisposable` / `IAsyncDisposable` quando si sottoscrivono eventi
 
+## Pattern di design ricorrenti
+
+Pattern emersi nel codice e da preservare nelle estensioni future. Non sono dogmi: ognuno ha un trade-off esplicito, applicarli solo quando il contesto è quello descritto.
+
+### Stato logico derivato da colonne nullable
+
+Quando lo stato di un'entità è ortogonale e si esprime con pochi flag (timestamp `*Utc` nullable), evitare un enum esplicito da mantenere in sync. Lo stato si deriva leggendo le colonne.
+
+- **Esempio**: `FirmaToken` ha `UsatoUtc`, `RevocatoUtc`, `ScadenzaUtc`. Lo stato "Attivo" è `UsatoUtc IS NULL AND RevocatoUtc IS NULL AND ScadenzaUtc > SYSUTCDATETIME()`.
+- **Quando applicarlo**: pochi stati, davvero ortogonali (non mutuamente esclusivi *a priori*), e ognuno corrisponde a un evento datato che vuoi tracciare in audit.
+- **Trade-off**: il predicato "Attivo" va replicato in ogni query (`GetUltimoAttivoAsync`, `SqlMarkTokenUsato`, …). Per stati molti o non ortogonali → usare un enum.
+
+### Doppia difesa: manager pre-check + repository sentinel
+
+Per ogni UPDATE che dipende da uno stato letto in precedenza (TOCTOU), proteggere il flusso in **due punti**:
+
+1. **Manager**: pre-check esplicito che genera un'eccezione tipizzata con messaggio user-friendly (`ValidaTokenAsync` → `FirmaTokenInvalidoException`)
+2. **Repository**: la stessa condizione replicata come `WHERE` sentinel nella UPDATE (`SqlMarkTokenUsato … AND RevocatoUtc IS NULL`)
+
+Il pre-check serve la UX (messaggio specifico). Il sentinel serve la correttezza sotto race condition: anche se il manager fosse aggirato o lo stato cambiasse fra check e use, l'UPDATE non aggiorna righe e la firma fallisce.
+
+- **Quando applicarlo**: ogni volta che lo stato controllato in lettura può cambiare per opera di un altro attore fra il check e l'UPDATE (rigenerazioni, revoche, transizioni di workflow).
+
+### Ordine dei controlli in eccezioni tipizzate è UX
+
+Quando un'eccezione tipizzata ha più motivi possibili (es. `FirmaTokenInvalidoMotivo` con `NonTrovato`/`Revocato`/`GiaUsato`/`Scaduto`), l'ordine di valutazione decide il messaggio mostrato all'utente.
+
+- **Regola**: mettere per primo il motivo che meglio guida l'azione successiva dell'utente, non il primo "tecnicamente disponibile".
+- **Esempio**: in `ValidaTokenAsync` l'ordine è `NonTrovato → Revocato → GiaUsato → Scaduto`. `Revocato` precede `Scaduto` perché "Link sostituito, richiedi quello aggiornato" è più azionabile di "Link scaduto".
+- **Quando applicarlo**: ogni metodo che lancia un'eccezione con `enum Motivo` di più valori.
+
 ## Comandi build / test
 
 Tutti i comandi vanno eseguiti dalla root della soluzione.
